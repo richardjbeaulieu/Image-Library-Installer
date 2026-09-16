@@ -1,0 +1,55 @@
+{
+  "name": "image-library",
+  "productName": "Image Library",
+  "version": "1.0.0",
+  "description": "Searchable, AI-tagged thumbnail browser for image folders, with zip auto-extraction and drag-and-drop.",
+  "author": "Image Library",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis"
+  },
+  "imageLibrary": {
+    "sharedDataDir": "X:\\ETSY\\Image Library\\library-data"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.126.0",
+    "extract-zip": "^2.0.1"
+  },
+  "devDependencies": {
+    "electron": "^44.4.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.imagelibrary.desktop",
+    "productName": "Image Library",
+    "directories": {
+      "output": "installer",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Image Library",
+      "artifactName": "Image-Library-Setup-${version}.exe"
+    }
+  }
+}

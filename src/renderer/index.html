@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' media: data:; style-src 'self'; script-src 'self'" />
+  <title>Image Library</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Image Library</div>
+    <div class="search-wrap">
+      <div class="search" id="search-box">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+        <div id="chips" class="chips-in"></div>
+        <input id="search" type="text" placeholder="Search images, press Enter to add a term" autocomplete="off" spellcheck="false" />
+        <button id="search-clear" class="icon-btn tiny" title="Clear search" hidden><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" /></svg></button>
+      </div>
+      <button id="filter-btn" class="icon-btn" title="Filter">
+        <svg viewBox="0 0 24 24"><path d="M3 5h18l-7 8.5V19l-4 2v-7.5Z" /></svg>
+      </button>
+    </div>
+    <div class="top-right">
+      <div id="ai-status" class="ai-status" hidden>
+        <span class="dot"></span><span id="ai-text"></span>
+        <button id="ai-toggle" class="link"></button>
+      </div>
+      <button id="rescan" class="icon-btn" title="Rescan folders (also extracts new zip files)">
+        <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /></svg>
+      </button>
+      <button id="open-settings" class="icon-btn" title="Settings">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" /></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="rail">
+      <button id="rail-add" class="icon-btn" title="Add a folder to the library">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 8v8M8 12h8" /></svg>
+      </button>
+      <button id="rail-library" class="icon-btn on" title="Show or hide the library panel">
+        <svg viewBox="0 0 24 24"><path d="M5 4v16M9 4v16M13 5l5 14.5" /></svg>
+      </button>
+      <button id="open-duplicates" class="icon-btn" title="Find duplicates">
+        <svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>
+      </button>
+    </nav>
+
+    <nav class="sidebar" id="sidebar">
+      <div class="side-title">My Library</div>
+      <div class="side-section">
+        <button class="side-item" data-source="all"><span class="ico">▦</span><span class="label">All Images</span><span class="n" id="n-all"></span></button>
+        <button class="side-item" data-source="recent"><span class="ico">◷</span><span class="label">Recently Added</span><span class="n" id="n-recent"></span></button>
+        <button class="side-item" data-source="unanalyzed"><span class="ico">✧</span><span class="label">Not Yet Described</span><span class="n" id="n-unanalyzed"></span></button>
+      </div>
+
+      <div class="side-section">
+        <div class="side-head"><span>Folders</span><button class="mini" id="add-root" title="Add a folder to the library">+</button></div>
+        <div id="folder-tree"></div>
+      </div>
+
+      <div class="side-section">
+        <div class="side-head"><span>Albums &amp; Collections</span><button class="mini" id="new-collection" title="New album, smart collection, or group">+</button></div>
+        <div id="collection-tree"></div>
+        <p class="side-hint" id="collections-hint">Albums hold images you pick. Smart collections fill themselves from rules.</p>
+      </div>
+    </nav>
+
+    <main id="main">
+      <div class="viewbar">
+        <span class="view-ico">▦</span>
+        <h1 id="view-title">All Images</h1>
+        <button id="edit-smart" class="btn subtle" hidden>Edit rules</button>
+        <span class="spacer"></span>
+        <span id="view-sub"></span>
+      </div>
+      <div class="scroller" id="scroller">
+        <div id="empty" class="empty" hidden>
+          <h2>Your image library</h2>
+          <p>Add one or more folders. Images show up here, get described by AI so you can search them, and zip files are extracted automatically.</p>
+          <button id="empty-add" class="primary">Add a folder</button>
+        </div>
+        <div id="no-results" class="empty" hidden><p id="no-results-text">No images match.</p></div>
+        <div id="grid" class="grid"></div>
+        <div id="sentinel"></div>
+      </div>
+
+      <footer class="bottombar">
+        <div class="bb-left">
+          <svg viewBox="0 0 24 24" class="dim"><path d="M4 6h16M4 12h11M4 18h6" /></svg>
+          <select id="sort" title="Sort">
+            <option value="relevance">Best match</option>
+            <option value="newest">Newest</option>
+            <option value="name">Name</option>
+            <option value="folder">Folder</option>
+            <option value="size">File size</option>
+          </select>
+          <span id="count" class="dim"></span>
+        </div>
+        <div id="selbar" class="pill" hidden>
+          <strong id="sel-count"></strong>
+          <button data-action="copy-file" title="Copy files (Ctrl+C)">Copy</button>
+          <button data-action="add-to-album">Add to album</button>
+          <button data-action="remove-from-album" hidden>Remove from album</button>
+          <button data-action="move">Move</button>
+          <button data-action="rename" title="Rename (F2)">Rename</button>
+          <button data-action="reanalyze">Re-describe</button>
+          <button data-action="trash" class="danger" title="Delete (Del)">Delete</button>
+          <span class="pill-sep"></span>
+          <button data-action="select-all">All</button>
+          <button data-action="clear-selection" title="Clear selection (Esc)">✕</button>
+        </div>
+        <div class="bb-right">
+          <span id="scan-state" class="dim"></span>
+          <svg viewBox="0 0 24 24" class="dim small"><rect x="5" y="5" width="14" height="14" rx="1" /></svg>
+          <input id="zoom" type="range" min="110" max="340" step="10" value="190" title="Thumbnail size" />
+          <svg viewBox="0 0 24 24" class="dim"><rect x="3" y="3" width="18" height="18" rx="1" /></svg>
+        </div>
+      </footer>
+    </main>
+
+    <aside id="detail" class="detail" hidden>
+      <div class="panel-head"><span>Info</span>
+        <button id="detail-close" class="icon-btn tiny" title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" /></svg></button>
+      </div>
+      <p id="detail-empty" class="side-hint">Select an image to see its details.</p>
+      <div id="detail-body">
+        <div class="preview checker" title="Drag into Canva, Photoshop, or any app">
+          <img id="detail-preview" alt="" draggable="true" />
+        </div>
+        <div class="actions">
+          <button data-action="copy-file" class="primary" title="Copy the file (Ctrl+C). Paste into Explorer, upload boxes, etc.">Copy file</button>
+          <button data-action="copy-image" title="Copy the pixels. Paste straight into Photoshop or Canva.">Copy image</button>
+          <button data-action="show">Show in folder</button>
+          <button data-action="open">Open</button>
+        </div>
+        <p class="hint">Drag the preview or any thumbnail into Canva, Photoshop, or a folder.</p>
+        <h2 id="detail-title"></h2>
+        <p id="detail-desc" class="desc"></p>
+        <div class="panel-label">Keywords</div>
+        <div id="detail-tags" class="tags"></div>
+        <div class="panel-label">File</div>
+        <dl id="detail-meta" class="meta"></dl>
+        <div id="detail-albums-wrap"><div class="panel-label">Albums</div><div id="detail-albums" class="tags"></div></div>
+      </div>
+    </aside>
+
+    <nav class="rail right">
+      <button id="rail-info" class="icon-btn" title="Show or hide info">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7.5v.01" /></svg>
+      </button>
+    </nav>
+  </div>
+
+  <div id="menu" class="menu" hidden></div>
+  <div id="toasts" class="toasts"></div>
+
+  <!-- Generic prompt / confirm -->
+  <dialog id="ask" class="dialog small">
+    <form method="dialog">
+      <h2 id="ask-title"></h2>
+      <p id="ask-text"></p>
+      <input id="ask-input" type="text" autocomplete="off" />
+      <select id="ask-select"></select>
+      <div class="dialog-actions">
+        <button value="cancel" formnovalidate>Cancel</button>
+        <button value="ok" class="primary" id="ask-ok">OK</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Smart collection editor -->
+  <dialog id="smart" class="dialog">
+    <form method="dialog">
+      <h2 id="smart-heading">Smart collection</h2>
+      <div class="form-grid">
+        <label>Name<input id="smart-name" type="text" required /></label>
+        <label>Group<select id="smart-group"></select></label>
+        <label class="wide">Matches search<input id="smart-query" type="text" placeholder="e.g. floral -watercolor tag:wedding" /></label>
+        <label>Category<select id="smart-category"></select></label>
+        <label>Style contains<input id="smart-style" type="text" placeholder="e.g. watercolor" /></label>
+        <label>Color<input id="smart-color" type="text" placeholder="e.g. pink" /></label>
+        <label>In folder<select id="smart-folder"></select></label>
+        <label>Modified in the last<span class="inline"><input id="smart-days" type="number" min="0" placeholder="any" /> days</span></label>
+        <label>AI status<select id="smart-status">
+          <option value="">Any</option><option value="done">Analyzed</option><option value="pending">Waiting</option><option value="error">Failed</option><option value="skipped">Not analyzable</option>
+        </select></label>
+        <fieldset class="wide"><legend>File types</legend><div id="smart-exts" class="chips"></div></fieldset>
+      </div>
+      <p class="muted" id="smart-preview"></p>
+      <div class="dialog-actions">
+        <button value="cancel" formnovalidate>Cancel</button>
+        <button value="ok" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Batch rename -->
+  <dialog id="rename" class="dialog wide">
+    <form method="dialog">
+      <h2>Rename <span id="rename-count"></span></h2>
+      <div class="form-grid">
+        <label class="wide">Name pattern<input id="rename-pattern" type="text" value="{name}" spellcheck="false" />
+          <small>Tokens: <code>{name}</code> current name · <code>{title}</code> AI title · <code>{category}</code> · <code>{folder}</code> · <code>{n}</code> number · <code>{date}</code> modified date. The extension is kept.</small>
+        </label>
+        <label>Start numbers at<input id="rename-start" type="number" value="1" min="0" /></label>
+        <label>Number digits<input id="rename-pad" type="number" value="2" min="1" max="6" /></label>
+        <label>Find<input id="rename-find" type="text" /></label>
+        <label>Replace with<input id="rename-replace" type="text" /></label>
+        <label>Letter case<select id="rename-case">
+          <option value="">Keep</option><option value="lower">lowercase</option><option value="upper">UPPERCASE</option><option value="title">Title Case</option>
+        </select></label>
+        <label>Spaces<select id="rename-spaces">
+          <option value="">Keep</option><option value="-">Use dashes</option><option value="_">Use underscores</option><option value="remove">Remove</option>
+        </select></label>
+      </div>
+      <div class="rename-preview"><table><thead><tr><th>Current</th><th>New</th></tr></thead><tbody id="rename-rows"></tbody></table></div>
+      <p id="rename-problems" class="problems"></p>
+      <div class="dialog-actions">
+        <button value="cancel" formnovalidate>Cancel</button>
+        <button value="ok" class="primary" id="rename-apply">Rename</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Duplicates -->
+  <dialog id="dupes" class="dialog huge">
+    <div class="dupes-head">
+      <h2>Duplicates</h2>
+      <label class="check"><input id="dupes-similar" type="checkbox" /> Also find visually similar images (resized or re-saved copies)</label>
+      <button id="dupes-find" class="primary">Find duplicates</button>
+      <span class="spacer"></span>
+      <button id="dupes-close" class="icon-btn" title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" /></svg></button>
+    </div>
+    <div id="dupes-progress" class="progress" hidden><div class="bar"><span></span></div><small></small></div>
+    <div id="dupes-toolbar" class="dupes-toolbar" hidden>
+      <span id="dupes-summary"></span>
+      <span class="spacer"></span>
+      <label>In every group, keep
+        <select id="dupes-rule">
+          <option value="resolution">the highest resolution</option>
+          <option value="largest">the largest file</option>
+          <option value="oldest">the oldest</option>
+          <option value="newest">the newest</option>
+          <option value="shortest">the shortest path</option>
+        </select>
+      </label>
+      <button id="dupes-auto">Mark the rest</button>
+      <button id="dupes-move">Move marked to…</button>
+      <button id="dupes-trash" class="danger">Delete marked</button>
+    </div>
+    <div id="dupes-list" class="dupes-list"></div>
+  </dialog>
+
+  <!-- Settings -->
+  <dialog id="settings" class="dialog">
+    <form method="dialog">
+      <h2>Settings</h2>
+      <section>
+        <h3>Library folders</h3>
+        <ul id="folder-list" class="folder-list"></ul>
+        <button type="button" id="add-folder">Add folder…</button>
+      </section>
+      <section>
+        <h3>AI (Claude)</h3>
+        <label class="field">API key
+          <span class="row">
+            <input id="api-key" type="password" placeholder="sk-ant-…" autocomplete="off" />
+            <button type="button" id="save-key">Save</button>
+          </span>
+          <small id="key-state"></small>
+        </label>
+        <label class="field">Model
+          <select id="model">
+            <option value="claude-opus-5">Claude Opus 5 (best descriptions)</option>
+            <option value="claude-sonnet-5">Claude Sonnet 5 (lower cost)</option>
+            <option value="claude-haiku-4-5">Claude Haiku 4.5 (lowest cost, fastest)</option>
+          </select>
+        </label>
+        <label class="field">Images analyzed at once<input id="concurrency" type="number" min="1" max="8" /></label>
+        <label class="check"><input id="auto-analyze" type="checkbox" /> Automatically analyze new images</label>
+        <button type="button" id="retry-failed" class="link">Retry failed images</button>
+      </section>
+      <section>
+        <h3>Zip files and watching</h3>
+        <label class="check"><input id="extract-zips" type="checkbox" /> Extract zip files into the folder they're in, then delete the zip</label>
+        <label class="check"><input id="zips-recycle" type="checkbox" /> Send deleted zips to the Recycle Bin (recoverable)</label>
+        <label class="check"><input id="watch-folders" type="checkbox" /> Watch folders for new images and zips</label>
+      </section>
+      <section>
+        <h3>Shared library data</h3>
+        <p class="muted">Descriptions, albums, collections, the folder list, and the AI model are stored here. Every PC that uses the same folder sees the same library. The API key and the options above stay on this PC.</p>
+        <span class="row"><input id="data-dir" type="text" readonly /><button type="button" id="change-data-dir">Change…</button></span>
+      </section>
+      <section>
+        <h3>Activity</h3>
+        <ol id="log" class="log"></ol>
+      </section>
+      <div class="dialog-actions"><button class="primary">Done</button></div>
+    </form>
+  </dialog>
+
+  <script src="search.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

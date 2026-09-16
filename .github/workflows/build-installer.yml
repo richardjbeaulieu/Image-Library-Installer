@@ -1,0 +1,25 @@
+# Builds the Windows installer on GitHub's servers (use this when your own PC blocks the build tools).
+# Run it from the repository's Actions tab ("Build Windows installer" > Run workflow),
+# then download Image-Library-Setup from the finished run's Artifacts section.
+name: Build Windows installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx electron-builder --win nsis --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Image-Library-Setup
+          path: installer/*.exe
