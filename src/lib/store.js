@@ -53,4 +53,4 @@ function openStores(userDataDir) {
   return { settings, index, legacyCollections };
 }
 
-module.exports = { openStores };
+module.exports = { openStores, JsonFile };

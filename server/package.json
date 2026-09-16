@@ -1,0 +1,17 @@
+{
+  "name": "image-library-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Image Library web server (runs on the NAS in Docker)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.126.0",
+    "archiver": "^7.0.1",
+    "express": "^5.2.1",
+    "extract-zip": "^2.0.1",
+    "sharp": "^0.34.3"
+  }
+}

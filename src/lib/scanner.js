@@ -45,7 +45,8 @@ async function extractZips(zips, { toRecycleBin, trashItem, log }) {
         settling++;
         continue;
       }
-      await extractZip(zip, { dir: path.dirname(path.resolve(zip)) });
+      // Open permissions so files extracted on the NAS stay editable by everyone using the share.
+      await extractZip(zip, { dir: path.dirname(path.resolve(zip)), defaultDirMode: 0o777, defaultFileMode: 0o666 });
       if (toRecycleBin) {
         try {
           await trashItem(zip);

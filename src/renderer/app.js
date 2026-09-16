@@ -87,7 +87,9 @@ function el(tag, props = {}, children = []) {
   return node;
 }
 const uid = () => crypto.randomUUID();
-const mediaUrl = (kind, p) => `media://${kind}/${encodeURIComponent(p)}`;
+// The web version (web/api.js) serves images over HTTP; the desktop app uses its media:// protocol.
+const WEB = Boolean(api.web);
+const mediaUrl = api.mediaUrl || ((kind, p) => `media://${kind}/${encodeURIComponent(p)}`);
 const sep = (p) => (p.includes('\\') ? '\\' : '/');
 const dirname = (p) => p.slice(0, Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/')));
 const basename = (p) => p.slice(Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/')) + 1);
@@ -402,13 +404,16 @@ $('#grid').addEventListener('contextmenu', (e) => {
 $('#grid').addEventListener('dragstart', (e) => {
   const c = e.target.closest('.tile');
   if (!c) return;
-  e.preventDefault();
   if (!selected.has(c.dataset.path)) setSelection([c.dataset.path], visible.findIndex((i) => i.path === c.dataset.path));
+  if (WEB) return api.prepareDrag(e.dataTransfer, selectedPaths(), c.querySelector('img'));
+  e.preventDefault();
   api.startDrag(selectedPaths());
 });
 $('#detail-preview').addEventListener('dragstart', (e) => {
+  if (!focusPath) return;
+  if (WEB) return api.prepareDrag(e.dataTransfer, [focusPath], e.target);
   e.preventDefault();
-  if (focusPath) api.startDrag([focusPath]);
+  api.startDrag([focusPath]);
 });
 
 // ---------- detail panel ----------
@@ -431,7 +436,7 @@ function showDetail(p) {
   const meta = [];
   const add = (k, v, cls) => v && meta.push(el('dt', { text: k }), el('dd', { text: v, class: cls }));
   add('File', item.name);
-  add('Folder', dirname(item.path));
+  add('Folder', item.location || dirname(item.path));
   add('Size', fmtSize(item.size));
   add('Modified', fmtDate(item.mtime));
   if (ai) {
@@ -481,12 +486,14 @@ async function runAction(action, paths) {
   if (!paths.length && !['select-all', 'clear-selection'].includes(action)) return;
   switch (action) {
     case 'copy-file':
+      if (WEB) return attempt(() => api.copyFiles(paths), paths.length > 1 ? `Downloading ${paths.length} images as a zip` : 'Downloading');
       return attempt(() => api.copyFiles(paths), paths.length > 1 ? `Copied ${paths.length} files` : 'Copied file. Paste it anywhere.');
     case 'copy-image':
       return attempt(() => api.copyImage(paths[0]), 'Copied image. Paste into Photoshop, Canva, etc.');
     case 'copy-path':
       return attempt(() => api.copyPaths(paths), 'Copied path');
     case 'show':
+      if (WEB) return attempt(() => api.showInFolder(paths[0]), 'Copied the folder path. Paste it into File Explorer.');
       return api.showInFolder(paths[0]);
     case 'open':
       return api.openFile(paths[0]);
@@ -530,10 +537,11 @@ async function trashFlow(paths) {
 
 // Returns { dest } where dest is null for "choose with the system dialog", or undefined if cancelled.
 async function chooseFolder(title) {
+  // The web version can only move files within the library folders.
   const folders = [...roots, ...dirs.filter((d) => !roots.includes(d))].sort((a, b) => displayDir(a).localeCompare(displayDir(b)));
   const choice = await ask({
     title,
-    options: [...folders.map((d) => ({ value: d, label: displayDir(d) })), { value: '__other', label: 'Somewhere else…' }],
+    options: [...folders.map((d) => ({ value: d, label: displayDir(d) })), ...(WEB ? [] : [{ value: '__other', label: 'Somewhere else…' }])],
     okText: 'Choose',
   });
   if (choice == null) return undefined;
@@ -582,8 +590,10 @@ window.addEventListener('blur', hideMenu);
 function showItemMenu(x, y, paths) {
   const one = paths.length === 1;
   showMenu(x, y, [
-    { label: one ? 'Copy file' : `Copy ${paths.length} files`, kbd: 'Ctrl+C', run: () => runAction('copy-file', paths) },
-    one && { label: 'Copy image', run: () => runAction('copy-image', paths) },
+    WEB
+      ? { label: one ? 'Download' : `Download ${paths.length} as zip`, run: () => runAction('copy-file', paths) }
+      : { label: one ? 'Copy file' : `Copy ${paths.length} files`, kbd: 'Ctrl+C', run: () => runAction('copy-file', paths) },
+    one && { label: 'Copy image', kbd: WEB ? 'Ctrl+C' : null, run: () => runAction('copy-image', paths) },
     { label: one ? 'Copy path' : 'Copy paths', run: () => runAction('copy-path', paths) },
     'sep',
     { label: 'Add to album…', keepOpen: true, run: () => showAlbumMenu(x, y, paths) },
@@ -592,8 +602,8 @@ function showItemMenu(x, y, paths) {
     { label: one ? 'Rename…' : 'Batch rename…', kbd: 'F2', run: () => openRename(paths) },
     { label: 'Re-analyze with AI', run: () => runAction('reanalyze', paths) },
     'sep',
-    one && { label: 'Show in folder', run: () => runAction('show', paths) },
-    one && { label: 'Open with default app', run: () => runAction('open', paths) },
+    one && { label: WEB ? 'Copy folder path' : 'Show in folder', run: () => runAction('show', paths) },
+    one && { label: WEB ? 'Open full size' : 'Open with default app', run: () => runAction('open', paths) },
     one && 'sep',
     { label: 'Delete', kbd: 'Del', danger: true, run: () => trashFlow(paths) },
   ].filter(Boolean));
@@ -769,9 +779,11 @@ function sideItem({ icon, label, count, active, depth = 0, twisty, onclick, onco
   return node;
 }
 
+// onDrop(paths, files): paths of library images dragged within the app; files dropped in from the PC.
 function makeDropTarget(node, onDrop) {
+  const accepts = (dt) => dt.types.includes('Files') || (WEB && dt.types.includes(api.dragType));
   node.addEventListener('dragover', (e) => {
-    if (!e.dataTransfer.types.includes('Files')) return;
+    if (!accepts(e.dataTransfer)) return;
     e.preventDefault();
     node.classList.add('drop-target');
   });
@@ -779,16 +791,27 @@ function makeDropTarget(node, onDrop) {
   node.addEventListener('drop', (e) => {
     e.preventDefault();
     node.classList.remove('drop-target');
+    if (WEB) {
+      const internal = e.dataTransfer.getData(api.dragType);
+      if (internal) return onDrop(JSON.parse(internal), []);
+      const files = [...e.dataTransfer.files];
+      if (files.length) onDrop([], files);
+      return;
+    }
     const paths = [...e.dataTransfer.files].map((f) => api.pathForFile(f)).filter(Boolean);
-    if (paths.length) onDrop(paths);
+    if (paths.length) onDrop(paths, []);
   });
 }
 
-async function dropOnFolder(dir, paths) {
+async function dropOnFolder(dir, paths, files = []) {
   const inLib = paths.filter((p) => byPath.has(p));
   const outside = paths.filter((p) => !byPath.has(p));
   if (inLib.length) reportResults(await attempt(() => api.moveFiles(inLib, dir)), 'Moved');
   if (outside.length) reportResults(await attempt(() => api.importFiles(outside, dir)), 'Copied in');
+  if (files.length) {
+    toast(`Uploading ${plural(files.length, 'file')}…`);
+    reportResults(await attempt(() => api.uploadFiles(files, dir)), 'Uploaded');
+  }
 }
 
 function renderSidebar() {
@@ -842,12 +865,12 @@ function renderSidebar() {
         e.preventDefault();
         showMenu(e.clientX, e.clientY, [
           { label: 'New folder inside…', run: () => newFolder(d) },
-          { label: 'Open in Explorer', run: () => api.openFolder(d) },
+          { label: WEB ? 'Copy folder path' : 'Open in Explorer', run: () => (WEB ? attempt(() => api.openFolder(d), 'Copied the folder path') : api.openFolder(d)) },
           isRoot && 'sep',
           isRoot && { label: 'Remove from library', danger: true, run: () => removeRoot(d) },
         ].filter(Boolean));
       },
-      drop: (paths) => dropOnFolder(d, paths),
+      drop: (paths, files) => dropOnFolder(d, paths, files),
     }));
     if (open) for (const k of kids) addDir(k, depth + 1, false);
   };
@@ -871,7 +894,7 @@ function renderSidebar() {
             { label: 'Delete album', danger: true, run: () => deleteAlbum(a) },
           ]);
         },
-        drop: (paths) => addToAlbum(a.id, paths),
+        drop: (paths) => paths.length && addToAlbum(a.id, paths),
       }));
     }
     for (const s of collections.smart.filter((x) => (x.groupId || null) === groupId)) {
@@ -1139,11 +1162,11 @@ function renderDupes() {
         el('div', { class: 'thumb checker' }, el('img', { src: mediaUrl('thumb', item.path), loading: 'lazy', alt: '' })),
         el('div', {}, [
           el('div', {}, [el('span', { class: 'dname', text: item.name }), isMarked ? null : el('span', { class: 'keep-label', text: 'KEEP' })]),
-          el('div', { class: 'dpath', text: dirname(item.path) }),
+          el('div', { class: 'dpath', text: item.location || dirname(item.path) }),
           el('div', { class: 'dmeta', text: [fmtSize(item.size), dims, `modified ${fmtDate(item.mtime)}`].filter(Boolean).join(' · ') }),
         ]),
         el('div', { class: 'dactions' }, [
-          el('button', { text: 'Show', title: 'Show in Explorer', onclick: () => api.showInFolder(item.path) }),
+          el('button', { text: WEB ? 'Copy path' : 'Show', title: WEB ? 'Copy the folder path' : 'Show in Explorer', onclick: () => (WEB ? attempt(() => api.showInFolder(item.path), 'Copied the folder path') : api.showInFolder(item.path)) }),
           el('button', { text: 'Keep only this', onclick: () => {
             for (const other of g.items) other.path === item.path ? marked.delete(other.path) : marked.add(other.path);
             renderDupes();
@@ -1204,7 +1227,7 @@ async function addRootFolder() {
 
 function renderSettings() {
   $('#folder-list').replaceChildren(...settings.folders.map((f) => el('li', {}, [
-    el('span', { text: f }),
+    el('span', { text: (settings.folderLabels && settings.folderLabels[f]) || f }),
     el('button', { type: 'button', class: 'link', text: 'Remove', onclick: () => removeRoot(f).then(renderSettings) }),
   ])));
   $('#model').value = settings.model;
@@ -1215,7 +1238,7 @@ function renderSettings() {
   $('#watch-folders').checked = settings.watchFolders;
   $('#data-dir').value = settings.dataDir || '';
   $('#key-state').textContent = settings.hasSavedKey
-    ? 'A key is saved (encrypted on this computer).'
+    ? WEB ? 'A key is saved on the server.' : 'A key is saved (encrypted on this computer).'
     : settings.hasEnvKey
       ? 'Using the ANTHROPIC_API_KEY environment variable.'
       : 'No key yet. Get one at console.anthropic.com.';
@@ -1334,7 +1357,8 @@ document.addEventListener('keydown', (e) => {
     setSelection(visible.map((i) => i.path));
   } else if (e.ctrlKey && e.key.toLowerCase() === 'c' && paths.length) {
     e.preventDefault();
-    runAction('copy-file', paths);
+    if (WEB) runAction('copy-image', paths.slice(0, 1));
+    else runAction('copy-file', paths);
   } else if (e.key === 'Delete' && paths.length) {
     trashFlow(paths);
   } else if (e.key === 'F2' && paths.length) {
@@ -1428,6 +1452,20 @@ api.onAuthError(() => {
 });
 
 // ---------- start ----------
+if (WEB) {
+  document.querySelectorAll('[data-action="copy-file"]').forEach((b) => {
+    b.textContent = 'Download';
+    b.title = 'Download (several images download as one zip)';
+  });
+  document.querySelectorAll('#detail [data-action="show"]').forEach((b) => {
+    b.textContent = 'Copy folder path';
+    b.title = 'Copy the folder path to paste into File Explorer';
+  });
+  document.querySelectorAll('#detail [data-action="open"]').forEach((b) => (b.textContent = 'Open full size'));
+  const hint = document.querySelector('#detail .hint');
+  if (hint) hint.textContent = 'Drag the preview or any thumbnail into Canva or a folder. Drop files from your PC onto a sidebar folder to upload them.';
+}
+
 (async function init() {
   if (prefs.zoom) {
     $('#zoom').value = prefs.zoom;

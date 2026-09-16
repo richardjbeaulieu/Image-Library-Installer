@@ -1,0 +1,9 @@
+node_modules
+server/node_modules
+installer
+library-data
+Image Library (portable)
+build
+.git
+.github
+*.tmp

@@ -1,0 +1,23 @@
+# Image Library on the UGREEN NAS.
+# Paste this into the UGOS Docker app (Project > Create) and adjust the two folder paths on the left of each
+# "volumes" line so they match your NAS. Then open http://newfileserver:8787 in a browser.
+services:
+  image-library:
+    image: ghcr.io/richardjbeaulieu/image-library:latest
+    container_name: image-library
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      TZ: America/Toronto
+      # How the image folders look from the PCs. Used for "Copy path" and shown in the app.
+      PATH_MAP: '/library=X:\ETSY'
+      # Optional: require a password in the browser (any user name).
+      # APP_PASSWORD: change-me
+      # Optional: the Claude API key can also be saved from the app's Settings instead.
+      # ANTHROPIC_API_KEY: sk-ant-...
+    volumes:
+      # The NAS folder that X:\ETSY points to.
+      - /volume1/Files/ETSY:/library
+      # Descriptions, albums, settings, and thumbnails. Any folder on the NAS; keep it backed up.
+      - /volume1/docker/image-library:/data
