@@ -118,6 +118,11 @@ input[type="checkbox"] { accent-color: var(--accent); }
 .ai-status { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; white-space: nowrap; margin-right: 8px; }
 .ai-status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); animation: pulse 1.4s infinite; }
 .ai-status.paused .dot { background: var(--faint); animation: none; }
+.ai-status.zip .dot { background: #e0a64a; }
+.ai-status.zip { cursor: pointer; }
+.ai-status.zip.finished .dot { background: var(--ok); animation: none; }
+.ai-status.zip.finished.had-errors .dot { background: var(--danger); }
+#zip-text { max-width: 340px; overflow: hidden; text-overflow: ellipsis; }
 @keyframes pulse { 50% { opacity: 0.3; } }
 
 /* ---------- layout ---------- */

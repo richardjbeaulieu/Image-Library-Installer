@@ -1403,7 +1403,42 @@ api.onItem((item) => {
   }, 1000);
 });
 
+let zipDoneTimer;
+function showZipProgress(p) {
+  const box = $('#zip-status');
+  if (!p) {
+    // A scan with nothing to extract. Leave a "Finished…" message up until its own timer hides it.
+    if (!box.classList.contains('finished')) box.hidden = true;
+    return;
+  }
+  clearTimeout(zipDoneTimer);
+  box.hidden = false;
+  box.classList.toggle('finished', Boolean(p.finished));
+  if (p.finished) {
+    const failed = p.failed || 0;
+    box.classList.toggle('had-errors', failed > 0);
+    $('#zip-text').textContent = failed
+      ? `Extracted ${p.total - failed} of ${plural(p.total, 'zip file')} · ${failed} couldn't be opened`
+      : `Finished extracting ${plural(p.total, 'zip file')}`;
+    box.title = 'Click for details (Settings > Activity)';
+    zipDoneTimer = setTimeout(() => (box.hidden = true), failed ? 15000 : 6000);
+  } else {
+    box.classList.remove('had-errors');
+    const n = Math.min(p.done + 1, p.total);
+    $('#zip-text').textContent = `Extracting zip files · ${n} of ${p.total}${p.current ? ` · ${p.current}` : ''}`;
+    box.title = p.current ? `Extracting ${p.current}` : '';
+  }
+}
+
+$('#zip-status').addEventListener('click', () => {
+  renderSettings();
+  renderLog();
+  $('#settings').showModal();
+  $('#log').scrollIntoView({ block: 'nearest' });
+});
+
 api.onStatus((s) => {
+  if ('extracting' in s) showZipProgress(s.extracting);
   if ('scanning' in s) $('#scan-state').textContent = s.scanning ? 'Scanning folders…' : '';
   if (s.analyzing) {
     const a = s.analyzing;

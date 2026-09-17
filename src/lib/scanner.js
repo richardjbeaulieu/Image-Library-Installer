@@ -10,6 +10,11 @@ const SKIP_DIRS = new Set(['__MACOSX', '$RECYCLE.BIN', 'System Volume Informatio
 const ZIP_SETTLE_MS = 10_000;
 const MAX_ZIP_PASSES = 5; // zips inside zips
 
+// Zips that couldn't be opened, keyed by path + size + modified time. They are not retried (or reported again)
+// until the file changes, e.g. a download is replaced with a good copy.
+const brokenZips = new Set();
+const zipKey = (zip, stat) => `${zip}|${stat.size}|${stat.mtimeMs}`;
+
 async function walk(root, onImage, onZip, onDir = () => {}) {
   let entries;
   try {
@@ -34,17 +39,26 @@ async function walk(root, onImage, onZip, onDir = () => {}) {
 
 // Extract each zip into the folder that contains it, then remove the zip.
 // The zip is only removed after a fully successful extraction.
-async function extractZips(zips, { toRecycleBin, trashItem, log }) {
+// progress: { done, total, failed } shared across passes.
+async function extractZips(zips, { toRecycleBin, trashItem, log, onZipProgress = () => {}, progress }) {
   let extracted = 0;
   let settling = 0;
+  const ready = [];
   for (const zip of zips) {
     try {
       const stat = await fsp.stat(zip);
+      if (brokenZips.has(zipKey(zip, stat))) continue;
       // Copies keep the source's modified time, so also look at when the file was created/changed here.
-      if (Date.now() - Math.max(stat.mtimeMs, stat.ctimeMs, stat.birthtimeMs) < ZIP_SETTLE_MS) {
-        settling++;
-        continue;
-      }
+      if (Date.now() - Math.max(stat.mtimeMs, stat.ctimeMs, stat.birthtimeMs) < ZIP_SETTLE_MS) settling++;
+      else ready.push({ zip, stat });
+    } catch {
+      /* vanished */
+    }
+  }
+  progress.total += ready.length;
+  for (const { zip, stat } of ready) {
+    onZipProgress({ done: progress.done, total: progress.total, current: path.basename(zip) });
+    try {
       // Open permissions so files extracted on the NAS stay editable by everyone using the share.
       await extractZip(zip, { dir: path.dirname(path.resolve(zip)), defaultDirMode: 0o777, defaultFileMode: 0o666 });
       if (toRecycleBin) {
@@ -59,8 +73,12 @@ async function extractZips(zips, { toRecycleBin, trashItem, log }) {
       extracted++;
       log(`Extracted ${path.basename(zip)}`);
     } catch (err) {
+      brokenZips.add(zipKey(zip, stat));
+      progress.failed++;
       log(`Could not extract ${path.basename(zip)}: ${err.message}`, 'error');
     }
+    progress.done++;
+    onZipProgress({ done: progress.done, total: progress.total, current: null });
   }
   return { extracted, settling };
 }
@@ -91,14 +109,17 @@ async function scanFolders(folders, opts) {
 
   let zipsSettling = 0;
   if (extractZipsEnabled) {
+    const progress = { done: 0, total: 0, failed: 0 };
     for (let pass = 0; pass < MAX_ZIP_PASSES; pass++) {
       const zips = [];
       for (const folder of folders) await walk(folder, () => {}, (z) => zips.push(z));
       if (zips.length === 0) break;
-      const { extracted, settling } = await extractZips(zips, opts);
+      const { extracted, settling } = await extractZips(zips, { ...opts, progress });
       zipsSettling = settling;
       if (extracted === 0) break; // remaining zips failed or are still settling
     }
+    // Done: { finished, total, failed } if any zips were handled, null if there were none.
+    if (opts.onZipProgress) opts.onZipProgress(progress.total ? { finished: true, total: progress.total, failed: progress.failed } : null);
   }
 
   const images = [];

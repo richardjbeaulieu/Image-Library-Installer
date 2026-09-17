@@ -159,6 +159,7 @@ async function scan() {
       toRecycleBin: settings.data.zipsToRecycleBin,
       trashItem: (p) => shell.trashItem(p),
       log,
+      onZipProgress: (p) => send('status', { extracting: p }),
     });
 
     const prevFiles = index.data.files;

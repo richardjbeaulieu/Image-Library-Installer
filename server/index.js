@@ -174,6 +174,7 @@ async function emptyOldTrash() {
 // ---------- scanning ----------
 
 let scanning = false;
+let extracting = null; // latest zip progress, for browsers that connect while it runs
 let rescanRequested = false;
 let settleTimer = null;
 
@@ -191,6 +192,10 @@ async function scan() {
       toRecycleBin: true,
       trashItem: moveToTrash,
       log,
+      onZipProgress: (p) => {
+        extracting = p && !p.finished ? p : null;
+        send('status', { extracting: p });
+      },
     });
 
     const prevFiles = index.data.files;
@@ -540,6 +545,7 @@ app.get('/api/events', (req, res) => {
   res.write(': connected\n\n');
   clients.add(res);
   queueStatus();
+  if (extracting) res.write(`data: ${JSON.stringify({ channel: 'status', payload: { extracting } })}\n\n`);
   req.on('close', () => clients.delete(res));
 });
 setInterval(() => {
