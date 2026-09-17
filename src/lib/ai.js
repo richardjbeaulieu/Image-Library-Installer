@@ -2,7 +2,7 @@
 const fsp = require('fs/promises');
 const path = require('path');
 const { nativeImage } = require('electron');
-const { MAX_EDGE, createClient, describeImage, SkipError, Anthropic } = require('./describe');
+const { MAX_EDGE, createClient, describeImage, SkipError, Anthropic, classifyError, errorText, PAUSE_MESSAGES } = require('./describe');
 
 const MAX_RAW_BYTES = 3.5 * 1024 * 1024; // base64 must stay under the API's 5MB image limit
 const RAW_TYPES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif' };
@@ -45,4 +45,4 @@ async function analyzeImage(client, model, file, root) {
   return describeImage(client, model, await encodeImage(file), file, root);
 }
 
-module.exports = { createClient, analyzeImage, SkipError, Anthropic };
+module.exports = { createClient, analyzeImage, SkipError, Anthropic, classifyError, errorText, PAUSE_MESSAGES };

@@ -19,7 +19,7 @@ const archiver = require('archiver');
 const { JsonFile } = require('../src/lib/store');
 const { SharedLibrary } = require('../src/lib/shared');
 const { scanFolders, fingerprint, ZIP_SETTLE_MS } = require('../src/lib/scanner');
-const { createClient, describeImage, SkipError, Anthropic } = require('../src/lib/describe');
+const { createClient, describeImage, classifyError, errorText, PAUSE_MESSAGES } = require('../src/lib/describe');
 const fileops = require('../src/lib/fileops');
 const { findDuplicates } = require('../src/lib/dupe-core');
 const { Thumbnails, encodeForAi, dHash, imageSize } = require('./images');
@@ -276,6 +276,7 @@ const queued = new Set();
 let active = 0;
 let paused = false;
 let client = null;
+let retryTimer = null; // set while waiting out a temporary Claude or network problem
 
 const apiKey = () => settings.data.apiKey || process.env.ANTHROPIC_API_KEY || null;
 
@@ -303,7 +304,7 @@ function setStatus(rec, status, error) {
 
 function pump() {
   queueStatus();
-  if (paused || !settings.data.autoAnalyze) return;
+  if (paused || retryTimer || !settings.data.autoAnalyze) return;
   if (queue.length && !apiKey()) {
     paused = true;
     queueStatus();
@@ -335,24 +336,31 @@ async function runOne(rec) {
     shared.putAi(rec.fp, result);
     for (const other of Object.values(index.data.files)) if (other.fp === rec.fp) setStatus(other, 'done');
   } catch (err) {
-    if (err instanceof SkipError) {
-      setStatus(rec, 'skipped', err.message);
-    } else if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) {
-      if (!queued.has(rec.path)) {
-        queue.unshift(rec.path);
-        queued.add(rec.path);
-      }
-      if (!paused) {
-        // Several requests can fail at once; tell people only once.
-        log('Claude API key missing or invalid. Add a key in Settings, then press Resume.', 'error');
-        send('auth-error');
-      }
-      paused = true;
-    } else if (err instanceof Anthropic.APIError) {
-      setStatus(rec, 'error', `API error ${err.status ?? ''}: ${err.message}`);
-    } else {
-      setStatus(rec, 'error', err.message);
+    const kind = classifyError(err);
+    if (kind === 'skip') return setStatus(rec, 'skipped', err.message);
+    if (kind === 'fail') return setStatus(rec, 'error', errorText(err));
+    // Not this image's fault: keep it waiting.
+    if (!queued.has(rec.path)) {
+      queue.unshift(rec.path);
+      queued.add(rec.path);
     }
+    if (kind === 'retry') {
+      if (!retryTimer) {
+        log(`Claude is busy or unreachable (${errorText(err)}). Trying again in a minute.`, 'error');
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          pump();
+        }, 60000);
+      }
+      return;
+    }
+    if (!paused) {
+      // Several requests fail at once; say it only once.
+      log(PAUSE_MESSAGES[kind], 'error');
+      send('auth-error');
+    }
+    paused = true;
+    queueStatus();
   }
 }
 
@@ -434,7 +442,11 @@ const handlers = {
 
   'ai:pause': (value) => {
     paused = Boolean(value);
-    if (!paused) client = null;
+    if (!paused) {
+      client = null;
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
     pump();
   },
   'ai:reanalyze': (paths = []) => {

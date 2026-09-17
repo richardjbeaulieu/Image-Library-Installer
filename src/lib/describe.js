@@ -54,6 +54,32 @@ function modelOptions(model) {
 
 class SkipError extends Error {}
 
+// How the description queue should react to an error:
+//   'skip'    this image can't be described (format, declined); mark it and move on
+//   'auth'    the API key is missing or invalid; pause and keep the image waiting
+//   'billing' the Anthropic account is out of credit; pause and keep the image waiting
+//   'retry'   Claude is busy/overloaded or the network failed; wait a minute and try again
+//   'fail'    anything else; mark this image as failed
+function classifyError(err) {
+  if (err instanceof SkipError) return 'skip';
+  if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) return 'auth';
+  if (err instanceof Anthropic.BadRequestError && /credit balance|plans & billing/i.test(err.message)) return 'billing';
+  if (err instanceof Anthropic.RateLimitError || err instanceof Anthropic.InternalServerError || err instanceof Anthropic.APIConnectionError) return 'retry';
+  return 'fail';
+}
+
+// The readable part of an API error ("Invalid image" rather than a JSON dump).
+function errorText(err) {
+  const inner = err && err.error && err.error.error && err.error.error.message;
+  if (err instanceof Anthropic.APIError) return `${inner || err.message}${err.status ? ` (${err.status})` : ''}`;
+  return (err && err.message) || String(err);
+}
+
+const PAUSE_MESSAGES = {
+  auth: 'Claude API key missing or invalid. Add a key in Settings, then press Resume.',
+  billing: 'Your Anthropic account is out of credit. Add credit at console.anthropic.com (Plans & Billing), then press Resume.',
+};
+
 // image: { media_type, data (base64) } prepared by the caller, or null if the format can't be encoded.
 async function describeImage(client, model, image, file, root) {
   if (!image) throw new SkipError('Format not supported for AI analysis (still searchable by name)');
@@ -85,4 +111,4 @@ async function describeImage(client, model, image, file, root) {
   return { ...result, model: response.model, analyzedAt: Date.now() };
 }
 
-module.exports = { MAX_EDGE, createClient, describeImage, SkipError, Anthropic };
+module.exports = { MAX_EDGE, createClient, describeImage, SkipError, Anthropic, classifyError, errorText, PAUSE_MESSAGES };

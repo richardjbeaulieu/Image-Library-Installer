@@ -9,7 +9,7 @@ const { pathToFileURL } = require('url');
 const { openStores } = require('./lib/store');
 const { SharedLibrary } = require('./lib/shared');
 const { scanFolders, fingerprint, ZIP_SETTLE_MS } = require('./lib/scanner');
-const { createClient, analyzeImage, SkipError, Anthropic } = require('./lib/ai');
+const { createClient, analyzeImage, classifyError, errorText, PAUSE_MESSAGES } = require('./lib/ai');
 const fileops = require('./lib/fileops');
 const { findDuplicates, imageSize } = require('./lib/duplicates');
 
@@ -251,6 +251,7 @@ let active = 0;
 let paused = false;
 let client = null;
 let doneThisRun = 0;
+let retryTimer = null; // set while waiting out a temporary Claude or network problem
 let claimRetryTimer = null;
 
 function queueStatus() {
@@ -281,7 +282,7 @@ function hasCredentials() {
 
 function pump() {
   queueStatus();
-  if (paused || !settings.data.autoAnalyze) return;
+  if (paused || retryTimer || !settings.data.autoAnalyze) return;
   if (queue.length && !hasCredentials()) {
     paused = true;
     queueStatus();
@@ -327,22 +328,31 @@ async function runOne(rec) {
       if (other.fp === rec.fp) setStatus(other, 'done');
     }
   } catch (err) {
-    if (err instanceof SkipError) {
-      setStatus(rec, 'skipped', err.message);
-    } else if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) {
-      // Put it back and stop until the key is fixed.
-      if (!queued.has(rec.path)) {
-        queue.unshift(rec.path);
-        queued.add(rec.path);
-      }
-      paused = true;
-      log('Claude API key missing or invalid. Add a key in Settings, then press Resume.', 'error');
-      send('auth-error');
-    } else if (err instanceof Anthropic.APIError) {
-      setStatus(rec, 'error', `API error ${err.status ?? ''}: ${err.message}`);
-    } else {
-      setStatus(rec, 'error', err.message);
+    const kind = classifyError(err);
+    if (kind === 'skip') return setStatus(rec, 'skipped', err.message);
+    if (kind === 'fail') return setStatus(rec, 'error', errorText(err));
+    // Not this image's fault: keep it waiting, and let other PCs pick it up meanwhile.
+    shared.releaseClaims([rec.fp]);
+    if (!queued.has(rec.path)) {
+      queue.unshift(rec.path);
+      queued.add(rec.path);
     }
+    if (kind === 'retry') {
+      if (!retryTimer) {
+        log(`Claude is busy or unreachable (${errorText(err)}). Trying again in a minute.`, 'error');
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          pump();
+        }, 60000);
+      }
+      return;
+    }
+    if (!paused) {
+      log(PAUSE_MESSAGES[kind], 'error');
+      send('auth-error');
+    }
+    paused = true;
+    queueStatus();
   }
 }
 
@@ -506,7 +516,11 @@ function registerIpc() {
 
   ipcMain.handle('ai:pause', (_e, value) => {
     paused = Boolean(value);
-    if (!paused) client = null; // pick up a newly saved key
+    if (!paused) {
+      client = null; // pick up a newly saved key
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
     pump();
   });
   ipcMain.handle('ai:reanalyze', (_e, paths) => {

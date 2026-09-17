@@ -212,13 +212,15 @@ main { flex: 1; display: flex; flex-direction: column; min-width: 0; background:
 }
 .tile .badge.error { color: #ff9d9d; }
 
-.checker {
-  background-color: #2d2d2d;
+/* Behind transparent images: the familiar white and light-grey checkerboard. */
+.checker,
+.tile.checker {
+  background-color: #ffffff;
   background-image:
-    linear-gradient(45deg, #262626 25%, transparent 25%), linear-gradient(-45deg, #262626 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #262626 75%), linear-gradient(-45deg, transparent 75%, #262626 75%);
-  background-size: 14px 14px;
-  background-position: 0 0, 0 7px, 7px -7px, -7px 0;
+    linear-gradient(45deg, #d6d6d6 25%, transparent 25%), linear-gradient(-45deg, #d6d6d6 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #d6d6d6 75%), linear-gradient(-45deg, transparent 75%, #d6d6d6 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
 }
 
 .empty { max-width: 460px; margin: 14vh auto; text-align: center; color: var(--muted); }
