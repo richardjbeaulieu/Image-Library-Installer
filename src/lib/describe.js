@@ -81,7 +81,7 @@ const PAUSE_MESSAGES = {
 };
 
 // image: { media_type, data (base64) } prepared by the caller, or null if the format can't be encoded.
-async function describeImage(client, model, image, file, root) {
+async function describeImage(client, model, image, file, root, packName) {
   if (!image) throw new SkipError('Format not supported for AI analysis (still searchable by name)');
 
   const rel = path.relative(root, file);
@@ -97,7 +97,14 @@ async function describeImage(client, model, image, file, root) {
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', ...image } },
-          { type: 'text', text: `File: ${path.basename(file)}\nFolder: ${path.dirname(rel) === '.' ? '(top level)' : path.dirname(rel)}` },
+          {
+            type: 'text',
+            text: [
+              `File: ${path.basename(file)}`,
+              `Folder: ${path.dirname(rel) === '.' ? '(top level)' : path.dirname(rel)}`,
+              packName ? `From the pack: ${packName}` : null,
+            ].filter(Boolean).join('\n'),
+          },
         ],
       },
     ],

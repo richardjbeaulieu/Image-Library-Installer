@@ -40,7 +40,7 @@ async function walk(root, onImage, onZip, onDir = () => {}) {
 // Extract each zip into the folder that contains it, then remove the zip.
 // The zip is only removed after a fully successful extraction.
 // progress: { done, total, failed } shared across passes.
-async function extractZips(zips, { toRecycleBin, trashItem, log, onZipProgress = () => {}, progress }) {
+async function extractZips(zips, { toRecycleBin, trashItem, log, onZipProgress = () => {}, onExtracted = () => {}, progress }) {
   let extracted = 0;
   let settling = 0;
   const ready = [];
@@ -59,8 +59,18 @@ async function extractZips(zips, { toRecycleBin, trashItem, log, onZipProgress =
   for (const { zip, stat } of ready) {
     onZipProgress({ done: progress.done, total: progress.total, current: path.basename(zip) });
     try {
+      const dir = path.dirname(path.resolve(zip));
+      const extractedFiles = [];
       // Open permissions so files extracted on the NAS stay editable by everyone using the share.
-      await extractZip(zip, { dir: path.dirname(path.resolve(zip)), defaultDirMode: 0o777, defaultFileMode: 0o666 });
+      await extractZip(zip, {
+        dir,
+        defaultDirMode: 0o777,
+        defaultFileMode: 0o666,
+        onEntry: (entry) => {
+          if (!entry.fileName.endsWith('/')) extractedFiles.push(path.join(dir, entry.fileName));
+        },
+      });
+      onExtracted({ zipPath: path.resolve(zip), files: extractedFiles });
       if (toRecycleBin) {
         try {
           await trashItem(zip);

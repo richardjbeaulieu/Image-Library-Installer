@@ -437,6 +437,18 @@ function showDetail(p) {
   const add = (k, v, cls) => v && meta.push(el('dt', { text: k }), el('dd', { text: v, class: cls }));
   add('File', item.name);
   add('Folder', item.location || dirname(item.path));
+  if (item.sourceZip) {
+    const label = item.sourcePack && item.sourcePack !== item.sourceZip ? `${item.sourceZip} (in ${item.sourcePack})` : item.sourceZip;
+    meta.push(
+      el('dt', { text: 'From zip' }),
+      el('dd', {}, el('span', {
+        class: 'tag',
+        text: label,
+        title: 'Show everything from this zip',
+        onclick: () => searchFor(`zip:"${item.sourcePack || item.sourceZip}"`),
+      })),
+    );
+  }
   add('Size', fmtSize(item.size));
   add('Modified', fmtDate(item.mtime));
   if (ai) {

@@ -48,6 +48,9 @@ const settings = new JsonFile(path.join(DATA_DIR, 'settings.json'), {
   concurrency: 3,
 });
 const index = new JsonFile(path.join(DATA_DIR, 'index.json'), { files: {} });
+// Which zip each extracted file came from: { [path]: { zip, pack, at } }. `pack` is the outermost zip
+// when zips contained zips.
+const origins = new JsonFile(path.join(DATA_DIR, 'origins.json'), { files: {} });
 const shared = new SharedLibrary(path.join(DATA_DIR, 'library')).load();
 const thumbs = new Thumbnails(path.join(DATA_DIR, 'thumbs'));
 let dirs = [];
@@ -88,6 +91,8 @@ function toItem(rec) {
     mtime: rec.mtime,
     status: rec.status,
     error: rec.error || null,
+    sourceZip: (origins.data.files[rec.path] || {}).zip || null,
+    sourcePack: (origins.data.files[rec.path] || {}).pack || null,
     ai: shared.getAi(rec.fp),
     location: displayPath(path.dirname(rec.path)), // as seen from the PCs, e.g. X:\ETSY\Clipart
   };
@@ -113,11 +118,26 @@ function relocate(from, to) {
   delete index.data.files[from];
   const root = rootOf(to);
   if (root) index.data.files[to] = { ...rec, path: to, name: path.basename(to), root };
+  if (origins.data.files[from]) {
+    if (root) origins.data.files[to] = origins.data.files[from];
+    delete origins.data.files[from];
+    origins.save();
+  }
   editAlbums((paths) => (root ? paths.map((p) => (p === from ? to : p)) : paths.filter((p) => p !== from)));
+}
+
+function recordOrigin({ zipPath, files }) {
+  const parent = origins.data.files[zipPath];
+  const zip = path.basename(zipPath);
+  const pack = parent ? parent.pack || parent.zip : zip;
+  for (const f of files) origins.data.files[f] = { zip, pack, at: Date.now() };
+  origins.save();
 }
 
 function forget(p) {
   delete index.data.files[p];
+  delete origins.data.files[p];
+  origins.save();
   editAlbums((paths) => paths.filter((x) => x !== p));
 }
 
@@ -192,6 +212,7 @@ async function scan() {
       toRecycleBin: true,
       trashItem: moveToTrash,
       log,
+      onExtracted: recordOrigin,
       onZipProgress: (p) => {
         extracting = p && !p.finished ? p : null;
         send('status', { extracting: p });
@@ -221,6 +242,15 @@ async function scan() {
       files[p] = { path: p, name: path.basename(p), root, size: stat.size, mtime: stat.mtimeMs, fp, status: 'pending' };
     }
     index.data.files = files;
+    // Forget where files came from once they are gone for good.
+    let originsChanged = false;
+    for (const p of Object.keys(origins.data.files)) {
+      if (!files[p] && !fs.existsSync(p)) {
+        delete origins.data.files[p];
+        originsChanged = true;
+      }
+    }
+    if (originsChanged) origins.save();
     reconcileStatuses();
     dirs = foundDirs;
 
@@ -332,7 +362,8 @@ function pump() {
 async function runOne(rec) {
   if (!client) client = createClient(apiKey());
   try {
-    const result = await describeImage(client, shared.library.model, await encodeForAi(rec.path), rec.path, rec.root);
+    const pack = (origins.data.files[rec.path] || {}).pack;
+    const result = await describeImage(client, shared.library.model, await encodeForAi(rec.path), rec.path, rec.root, pack);
     shared.putAi(rec.fp, result);
     for (const other of Object.values(index.data.files)) if (other.fp === rec.fp) setStatus(other, 'done');
   } catch (err) {
@@ -671,6 +702,7 @@ process.on('SIGTERM', () => {
   shared.close();
   settings.flush();
   index.flush();
+  origins.flush();
   process.exit(0);
 });
 

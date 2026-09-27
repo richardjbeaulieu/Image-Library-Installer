@@ -21,6 +21,7 @@ let win;
 let settings;
 let index;
 let legacyCollections;
+let origins;
 let shared; // library data shared with other PCs (folders, model, AI descriptions, collections)
 let thumbDir;
 let dirs = [];
@@ -56,6 +57,8 @@ function toItem(rec) {
     mtime: rec.mtime,
     status: rec.status,
     error: rec.error || null,
+    sourceZip: (origins.data.files[rec.path] || {}).zip || null,
+    sourcePack: (origins.data.files[rec.path] || {}).pack || null,
     ai,
   };
 }
@@ -85,6 +88,11 @@ function relocate(from, to) {
   delete index.data.files[from];
   const root = rootOf(to);
   if (root) index.data.files[to] = { ...rec, path: to, name: path.basename(to), root };
+  if (origins.data.files[from]) {
+    if (root) origins.data.files[to] = origins.data.files[from];
+    delete origins.data.files[from];
+    origins.save();
+  }
   editAlbums((paths) => (root ? paths.map((p) => (p === from ? to : p)) : paths.filter((p) => p !== from)));
 }
 
@@ -128,8 +136,19 @@ function onSharedChange(kind) {
   }
 }
 
+// Remember which zip an extracted file came from (`pack` is the outermost zip, for zips inside zips).
+function recordOrigin({ zipPath, files }) {
+  const parent = origins.data.files[zipPath];
+  const zip = path.basename(zipPath);
+  const pack = parent ? parent.pack || parent.zip : zip;
+  for (const f of files) origins.data.files[f] = { zip, pack, at: Date.now() };
+  origins.save();
+}
+
 function forget(p) {
   delete index.data.files[p];
+  delete origins.data.files[p];
+  origins.save();
   editAlbums((paths) => paths.filter((x) => x !== p));
 }
 
@@ -160,6 +179,7 @@ async function scan() {
       trashItem: (p) => shell.trashItem(p),
       log,
       onZipProgress: (p) => send('status', { extracting: p }),
+      onExtracted: recordOrigin,
     });
 
     const prevFiles = index.data.files;
@@ -193,6 +213,15 @@ async function scan() {
       };
     }
     index.data.files = files;
+    // Forget where files came from once they are gone for good.
+    let originsChanged = false;
+    for (const p of Object.keys(origins.data.files)) {
+      if (!files[p] && !fs.existsSync(p)) {
+        delete origins.data.files[p];
+        originsChanged = true;
+      }
+    }
+    if (originsChanged) origins.save();
     reconcileStatuses();
     dirs = foundDirs;
 
@@ -320,7 +349,7 @@ function pump() {
 async function runOne(rec) {
   if (!client) client = createClient(getApiKey());
   try {
-    const result = await analyzeImage(client, shared.library.model, rec.path, rec.root);
+    const result = await analyzeImage(client, shared.library.model, rec.path, rec.root, (origins.data.files[rec.path] || {}).pack);
     shared.putAi(rec.fp, result);
     doneThisRun++;
     // Apply to every file sharing this content.
@@ -684,6 +713,7 @@ app.whenReady().then(() => {
   settings = stores.settings;
   index = stores.index;
   legacyCollections = stores.legacyCollections;
+  origins = stores.origins;
   if (!openSharedLibrary()) return;
   thumbDir = path.join(app.getPath('userData'), 'thumbs');
   fs.mkdirSync(thumbDir, { recursive: true });
@@ -716,6 +746,7 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   settings?.flush();
   index?.flush();
+  origins?.flush();
   shared?.close();
 });
 

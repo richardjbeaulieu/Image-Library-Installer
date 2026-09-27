@@ -8,8 +8,9 @@ It runs two ways from the same code:
 
 ## What it does
 - **Thumbnails + AI search**: Claude describes every image (title, description, tags, colors, style, category, text in the image).
-  Search like `red floral watercolor`, `christmas -tree`, `tag:wedding`, `color:navy`, `ext:png`, `folder:christmas`, `"exact phrase"`.
+  Search like `red floral watercolor`, `christmas -tree`, `tag:wedding`, `color:navy`, `ext:png`, `folder:christmas`, `zip:"floral bundle"`, `"exact phrase"`.
 - **Zip files**: zips in the library folders are unzipped into the same folder, then the zip is deleted (to the trash).
+  Extracted files remember the zip they came from (shown in the Info panel, searchable with `zip:`), including the outer zip when zips contain zips.
   Zips that were just added wait 10 seconds so a copy or download can finish.
 - **Folders**: create real folders, move images by dragging them onto a folder in the sidebar or with *Move to…*.
 - **Albums**: hand-picked sets. Add with *Add to album* or drag images onto an album.

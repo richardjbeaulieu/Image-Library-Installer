@@ -41,8 +41,8 @@ async function encodeImage(file) {
   return null;
 }
 
-async function analyzeImage(client, model, file, root) {
-  return describeImage(client, model, await encodeImage(file), file, root);
+async function analyzeImage(client, model, file, root, packName) {
+  return describeImage(client, model, await encodeImage(file), file, root, packName);
 }
 
 module.exports = { createClient, analyzeImage, SkipError, Anthropic, classifyError, errorText, PAUSE_MESSAGES };

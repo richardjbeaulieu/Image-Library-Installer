@@ -6,7 +6,7 @@
 //   -tree               exclude
 //   tag:x color:x style:x category:x folder:x name:x ext:png text:x   match one field only
 (function () {
-  const FIELDS = new Set(['tag', 'color', 'style', 'category', 'folder', 'name', 'ext', 'text']);
+  const FIELDS = new Set(['tag', 'color', 'style', 'category', 'folder', 'name', 'ext', 'text', 'zip']);
 
   function parseQuery(q) {
     const terms = [];
@@ -34,6 +34,8 @@
       name: item.name.toLowerCase().replace(/[_\-.]+/g, ' '),
       ext: dot >= 0 ? item.name.slice(dot + 1).toLowerCase() : '',
       folder: (item.folder || '').toLowerCase().replace(/[_\-]+/g, ' '),
+      // The zip (and original pack) this file was extracted from.
+      zip: `${item.sourceZip || ''} ${item.sourcePack || ''}`.toLowerCase().replace(/[_\-.]+/g, ' '),
       title: (ai.title || '').toLowerCase(),
       description: (ai.description || '').toLowerCase(),
       tags: (ai.tags || []).map((t) => t.toLowerCase()),
@@ -71,6 +73,7 @@
       case 'folder': return inText(f.folder, 3);
       case 'name': return inText(f.name, 3);
       case 'text': return inText(f.text, 3);
+      case 'zip': return inText(f.zip, 3);
       case 'ext': return f.ext === value || (value === 'jpg' && f.ext === 'jpeg') ? 3 : 0;
     }
     return Math.max(
@@ -81,6 +84,7 @@
       inText(f.style, 3),
       inText(f.category, 3),
       inText(f.folder, 2),
+      inText(f.zip, 2),
       inText(f.mood, 2),
       inText(f.text, 2),
       inText(f.description, 1.5),

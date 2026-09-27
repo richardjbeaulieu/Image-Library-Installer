@@ -50,7 +50,9 @@ function openStores(userDataDir) {
   // imported once into the shared library.)
   const index = new JsonFile(path.join(userDataDir, 'index.json'), { files: {}, ai: {} });
   const legacyCollections = new JsonFile(path.join(userDataDir, 'collections.json'), { groups: [], albums: [], smart: [] });
-  return { settings, index, legacyCollections };
+  // Which zip each extracted file came from: { [path]: { zip, pack, at } }.
+  const origins = new JsonFile(path.join(userDataDir, 'origins.json'), { files: {} });
+  return { settings, index, legacyCollections, origins };
 }
 
 module.exports = { openStores, JsonFile };
