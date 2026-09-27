@@ -10,6 +10,7 @@ const DEFAULT_SETTINGS = {
   apiKeyEnc: null, // API key encrypted with Electron safeStorage (base64), valid only for this Windows user
   autoAnalyze: true,
   extractZips: true,
+  wrapLooseZips: true, // put loose zip contents into a folder named after the zip
   zipsToRecycleBin: true, // delete zips by moving them to the Recycle Bin (recoverable)
   watchFolders: true,
   concurrency: 3,

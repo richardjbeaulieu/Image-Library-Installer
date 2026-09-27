@@ -44,6 +44,7 @@ const settings = new JsonFile(path.join(DATA_DIR, 'settings.json'), {
   apiKey: null,
   autoAnalyze: true,
   extractZips: true,
+  wrapLooseZips: true, // put loose zip contents into a folder named after the zip
   watchFolders: true,
   concurrency: 3,
 });
@@ -209,6 +210,7 @@ async function scan() {
     const folders = shared.library.folders.filter((f) => fs.existsSync(f));
     const { images, dirs: foundDirs, zipsSettling } = await scanFolders(folders, {
       extractZipsEnabled: settings.data.extractZips,
+      wrapLooseZips: settings.data.wrapLooseZips !== false,
       toRecycleBin: true,
       trashItem: moveToTrash,
       log,
@@ -404,6 +406,7 @@ function publicSettings() {
     model: shared.library.model,
     autoAnalyze: settings.data.autoAnalyze,
     extractZips: settings.data.extractZips,
+    wrapLooseZips: settings.data.wrapLooseZips !== false,
     zipsToRecycleBin: true,
     watchFolders: settings.data.watchFolders,
     concurrency: settings.data.concurrency,
@@ -429,7 +432,7 @@ const handlers = {
 
   'settings:get': () => publicSettings(),
   'settings:set': (patch = {}) => {
-    for (const k of ['autoAnalyze', 'extractZips', 'watchFolders', 'concurrency']) if (k in patch) settings.data[k] = patch[k];
+    for (const k of ['autoAnalyze', 'extractZips', 'wrapLooseZips', 'watchFolders', 'concurrency']) if (k in patch) settings.data[k] = patch[k];
     settings.flush();
     if (patch.model && patch.model !== shared.library.model) shared.setModel(patch.model);
     restartWatchers();

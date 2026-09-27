@@ -1,8 +1,11 @@
 // Walks the library folders, extracts zip files in place, and returns every image found.
+const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
 const extractZip = require('extract-zip');
+const yauzl = require('yauzl');
+const { validateName } = require('./fileops');
 
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tif', '.tiff', '.svg', '.avif']);
 const SKIP_DIRS = new Set(['__MACOSX', '$RECYCLE.BIN', 'System Volume Information', 'node_modules', '.git']);
@@ -14,6 +17,41 @@ const MAX_ZIP_PASSES = 5; // zips inside zips
 // until the file changes, e.g. a download is replaced with a good copy.
 const brokenZips = new Set();
 const zipKey = (zip, stat) => `${zip}|${stat.size}|${stat.mtimeMs}`;
+
+// True when unzipping would drop files straight into the folder, rather than into a folder of their own.
+function hasLooseFiles(zip) {
+  return new Promise((resolve, reject) => {
+    yauzl.open(zip, { lazyEntries: true }, (err, zipfile) => {
+      if (err) return reject(err);
+      let loose = false;
+      zipfile.on('entry', (entry) => {
+        const name = entry.fileName.replace(/^\.\//, '');
+        const top = name.split('/')[0];
+        // Mac archives and hidden helper files don't count as content.
+        const skip = top === '__MACOSX' || top.startsWith('.') || name.endsWith('/');
+        if (!skip && !name.includes('/')) loose = true;
+        if (loose) {
+          zipfile.close();
+          return resolve(true);
+        }
+        zipfile.readEntry();
+      });
+      zipfile.on('end', () => resolve(loose));
+      zipfile.on('error', reject);
+      zipfile.readEntry();
+    });
+  });
+}
+
+// A free folder named after the zip, next to it.
+function folderForZip(zip) {
+  const parent = path.dirname(path.resolve(zip));
+  const base = path.basename(zip, path.extname(zip)).replace(/[<>:"/\\|?*\x00-\x1f]/g, '').replace(/[. ]+$/, '').trim();
+  if (!base || validateName(base)) return null; // fall back to extracting in place
+  let dir = path.join(parent, base);
+  for (let i = 2; fs.existsSync(dir); i++) dir = path.join(parent, `${base} (${i})`);
+  return dir;
+}
 
 async function walk(root, onImage, onZip, onDir = () => {}) {
   let entries;
@@ -40,7 +78,7 @@ async function walk(root, onImage, onZip, onDir = () => {}) {
 // Extract each zip into the folder that contains it, then remove the zip.
 // The zip is only removed after a fully successful extraction.
 // progress: { done, total, failed } shared across passes.
-async function extractZips(zips, { toRecycleBin, trashItem, log, onZipProgress = () => {}, onExtracted = () => {}, progress }) {
+async function extractZips(zips, { toRecycleBin, trashItem, log, onZipProgress = () => {}, onExtracted = () => {}, wrapLooseZips = true, progress }) {
   let extracted = 0;
   let settling = 0;
   const ready = [];
@@ -59,7 +97,13 @@ async function extractZips(zips, { toRecycleBin, trashItem, log, onZipProgress =
   for (const { zip, stat } of ready) {
     onZipProgress({ done: progress.done, total: progress.total, current: path.basename(zip) });
     try {
-      const dir = path.dirname(path.resolve(zip));
+      // Files that would land loose in the folder go into a folder named after the zip instead.
+      let dir = path.dirname(path.resolve(zip));
+      let intoOwnFolder = null;
+      if (wrapLooseZips && (await hasLooseFiles(zip))) {
+        intoOwnFolder = folderForZip(zip);
+        if (intoOwnFolder) dir = intoOwnFolder;
+      }
       const extractedFiles = [];
       // Open permissions so files extracted on the NAS stay editable by everyone using the share.
       await extractZip(zip, {
@@ -81,7 +125,7 @@ async function extractZips(zips, { toRecycleBin, trashItem, log, onZipProgress =
         await fsp.unlink(zip);
       }
       extracted++;
-      log(`Extracted ${path.basename(zip)}`);
+      log(intoOwnFolder ? `Extracted ${path.basename(zip)} into the folder "${path.basename(intoOwnFolder)}"` : `Extracted ${path.basename(zip)}`);
     } catch (err) {
       brokenZips.add(zipKey(zip, stat));
       progress.failed++;

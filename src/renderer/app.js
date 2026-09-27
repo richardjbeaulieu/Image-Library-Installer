@@ -1246,6 +1246,7 @@ function renderSettings() {
   $('#concurrency').value = settings.concurrency;
   $('#auto-analyze').checked = settings.autoAnalyze;
   $('#extract-zips').checked = settings.extractZips;
+  $('#wrap-loose-zips').checked = settings.wrapLooseZips !== false;
   $('#zips-recycle').checked = settings.zipsToRecycleBin;
   $('#watch-folders').checked = settings.watchFolders;
   $('#data-dir').value = settings.dataDir || '';
@@ -1289,6 +1290,7 @@ bindSetting('#model', 'model', (e) => e.value);
 bindSetting('#concurrency', 'concurrency', (e) => Math.min(8, Math.max(1, Number(e.value) || 1)));
 bindSetting('#auto-analyze', 'autoAnalyze', (e) => e.checked);
 bindSetting('#extract-zips', 'extractZips', (e) => e.checked);
+bindSetting('#wrap-loose-zips', 'wrapLooseZips', (e) => e.checked);
 bindSetting('#zips-recycle', 'zipsToRecycleBin', (e) => e.checked);
 bindSetting('#watch-folders', 'watchFolders', (e) => e.checked);
 $('#retry-failed').addEventListener('click', () => attempt(() => api.retryFailed(), 'Retrying failed images'));

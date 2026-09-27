@@ -175,6 +175,7 @@ async function scan() {
     const folders = shared.library.folders.filter((f) => fs.existsSync(f));
     const { images, dirs: foundDirs, zipsSettling } = await scanFolders(folders, {
       extractZipsEnabled: settings.data.extractZips,
+      wrapLooseZips: settings.data.wrapLooseZips !== false,
       toRecycleBin: settings.data.zipsToRecycleBin,
       trashItem: (p) => shell.trashItem(p),
       log,
@@ -511,7 +512,7 @@ function registerIpc() {
 
   ipcMain.handle('settings:get', () => publicSettings());
   ipcMain.handle('settings:set', (_e, patch) => {
-    const allowed = ['autoAnalyze', 'extractZips', 'zipsToRecycleBin', 'watchFolders', 'concurrency'];
+    const allowed = ['autoAnalyze', 'extractZips', 'wrapLooseZips', 'zipsToRecycleBin', 'watchFolders', 'concurrency'];
     for (const k of allowed) if (k in patch) settings.data[k] = patch[k];
     if (patch.model && patch.model !== shared.library.model) shared.setModel(patch.model);
     settings.flush();
