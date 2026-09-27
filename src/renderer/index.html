@@ -290,6 +290,13 @@
         <label class="check"><input id="extract-zips" type="checkbox" /> Extract zip files into the folder they're in, then delete the zip</label>
         <label class="check"><input id="wrap-loose-zips" type="checkbox" /> If a zip's files would land loose in the folder, put them in a new folder named after the zip</label>
         <label class="check"><input id="zips-recycle" type="checkbox" /> Send deleted zips to the Recycle Bin (recoverable)</label>
+        <label class="field">After extracting, move the zip to this folder (leave empty to delete it)
+          <span class="row">
+            <input id="zip-archive" type="text" placeholder="e.g. X:\ETSY\ETSY Businesses\Resources\Creative Fabrica Zip Archive" spellcheck="false" />
+            <button type="button" id="choose-zip-archive">Choose…</button>
+          </span>
+          <small>Images are never taken from this folder, and zips there are left alone.</small>
+        </label>
         <label class="check"><input id="watch-folders" type="checkbox" /> Watch folders for new images and zips</label>
       </section>
       <section>

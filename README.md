@@ -11,6 +11,7 @@ It runs two ways from the same code:
   Search like `red floral watercolor`, `christmas -tree`, `tag:wedding`, `color:navy`, `ext:png`, `folder:christmas`, `zip:"floral bundle"`, `"exact phrase"`.
 - **Zip files**: zips in the library folders are unzipped into the same folder, then the zip is deleted (to the trash).
   Extracted files remember the zip they came from (shown in the Info panel, searchable with `zip:`), including the outer zip when zips contain zips.
+  After extracting, the zip is moved to the archive folder set in Settings (or deleted if that is empty); the archive folder is never scanned.
   If a zip's files would land loose in the folder, they go into a new folder named after the zip (Settings can turn this off);
   zips that already contain a folder are extracted as they are.
   Zips that were just added wait 10 seconds so a copy or download can finish.

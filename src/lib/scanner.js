@@ -53,7 +53,8 @@ function folderForZip(zip) {
   return dir;
 }
 
-async function walk(root, onImage, onZip, onDir = () => {}) {
+async function walk(root, onImage, onZip, onDir = () => {}, skip = new Set()) {
+  if (skip.has(root.toLowerCase())) return;
   let entries;
   try {
     entries = await fsp.readdir(root, { withFileTypes: true });
@@ -63,9 +64,9 @@ async function walk(root, onImage, onZip, onDir = () => {}) {
   for (const entry of entries) {
     const full = path.join(root, entry.name);
     if (entry.isDirectory()) {
-      if (!SKIP_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
+      if (!SKIP_DIRS.has(entry.name) && !entry.name.startsWith('.') && !skip.has(full.toLowerCase())) {
         onDir(full);
-        await walk(full, onImage, onZip, onDir);
+        await walk(full, onImage, onZip, onDir, skip);
       }
     } else if (entry.isFile() && !entry.name.startsWith('._')) {
       const ext = path.extname(entry.name).toLowerCase();
@@ -78,7 +79,7 @@ async function walk(root, onImage, onZip, onDir = () => {}) {
 // Extract each zip into the folder that contains it, then remove the zip.
 // The zip is only removed after a fully successful extraction.
 // progress: { done, total, failed } shared across passes.
-async function extractZips(zips, { toRecycleBin, trashItem, log, onZipProgress = () => {}, onExtracted = () => {}, wrapLooseZips = true, progress }) {
+async function extractZips(zips, { toRecycleBin, trashItem, archiveZip, log, onZipProgress = () => {}, onExtracted = () => {}, wrapLooseZips = true, progress }) {
   let extracted = 0;
   let settling = 0;
   const ready = [];
@@ -115,17 +116,28 @@ async function extractZips(zips, { toRecycleBin, trashItem, log, onZipProgress =
         },
       });
       onExtracted({ zipPath: path.resolve(zip), files: extractedFiles });
-      if (toRecycleBin) {
+      let archivedTo = null;
+      if (archiveZip) {
         try {
-          await trashItem(zip);
-        } catch {
+          archivedTo = await archiveZip(zip);
+        } catch (err) {
+          log(`Could not move ${path.basename(zip)} to the zip archive (${err.message}); deleting it instead`, 'error');
+        }
+      }
+      if (!archivedTo) {
+        if (toRecycleBin) {
+          try {
+            await trashItem(zip);
+          } catch {
+            await fsp.unlink(zip);
+          }
+        } else {
           await fsp.unlink(zip);
         }
-      } else {
-        await fsp.unlink(zip);
       }
       extracted++;
-      log(intoOwnFolder ? `Extracted ${path.basename(zip)} into the folder "${path.basename(intoOwnFolder)}"` : `Extracted ${path.basename(zip)}`);
+      const where = intoOwnFolder ? ` into the folder "${path.basename(intoOwnFolder)}"` : '';
+      log(`Extracted ${path.basename(zip)}${where}${archivedTo ? '; zip moved to the archive' : ''}`);
     } catch (err) {
       brokenZips.add(zipKey(zip, stat));
       progress.failed++;
@@ -160,13 +172,15 @@ async function fingerprint(file, size) {
 
 async function scanFolders(folders, opts) {
   const { extractZipsEnabled, log } = opts;
+  // Folders to leave alone, e.g. where extracted zips are archived.
+  const skip = new Set((opts.skipDirs || []).map((d) => path.resolve(d).toLowerCase()));
 
   let zipsSettling = 0;
   if (extractZipsEnabled) {
     const progress = { done: 0, total: 0, failed: 0 };
     for (let pass = 0; pass < MAX_ZIP_PASSES; pass++) {
       const zips = [];
-      for (const folder of folders) await walk(folder, () => {}, (z) => zips.push(z));
+      for (const folder of folders) await walk(folder, () => {}, (z) => zips.push(z), () => {}, skip);
       if (zips.length === 0) break;
       const { extracted, settling } = await extractZips(zips, { ...opts, progress });
       zipsSettling = settling;
@@ -180,7 +194,7 @@ async function scanFolders(folders, opts) {
   const dirs = [];
   for (const root of folders) {
     dirs.push(root);
-    await walk(root, (f) => images.push({ path: f, root }), () => {}, (d) => dirs.push(d));
+    await walk(root, (f) => images.push({ path: f, root }), () => {}, (d) => dirs.push(d), skip);
   }
   return { images, dirs, zipsSettling };
 }

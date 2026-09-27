@@ -1247,6 +1247,7 @@ function renderSettings() {
   $('#auto-analyze').checked = settings.autoAnalyze;
   $('#extract-zips').checked = settings.extractZips;
   $('#wrap-loose-zips').checked = settings.wrapLooseZips !== false;
+  $('#zip-archive').value = settings.zipArchiveDisplay || settings.zipArchive || '';
   $('#zips-recycle').checked = settings.zipsToRecycleBin;
   $('#watch-folders').checked = settings.watchFolders;
   $('#data-dir').value = settings.dataDir || '';
@@ -1291,6 +1292,20 @@ bindSetting('#concurrency', 'concurrency', (e) => Math.min(8, Math.max(1, Number
 bindSetting('#auto-analyze', 'autoAnalyze', (e) => e.checked);
 bindSetting('#extract-zips', 'extractZips', (e) => e.checked);
 bindSetting('#wrap-loose-zips', 'wrapLooseZips', (e) => e.checked);
+$('#zip-archive').addEventListener('change', async () => {
+  const next = await attempt(() => api.setSettings({ zipArchive: $('#zip-archive').value.trim() }));
+  if (next) {
+    settings = next;
+    toast(settings.zipArchive ? 'Extracted zips will be moved to that folder' : 'Extracted zips will be deleted');
+  }
+  renderSettings();
+});
+$('#choose-zip-archive').addEventListener('click', async () => {
+  const dir = await (WEB ? api.pickFolder('Choose the folder for extracted zips') : api.chooseFolder('Choose the folder for extracted zips'));
+  if (!dir) return;
+  $('#zip-archive').value = dir;
+  $('#zip-archive').dispatchEvent(new Event('change'));
+});
 bindSetting('#zips-recycle', 'zipsToRecycleBin', (e) => e.checked);
 bindSetting('#watch-folders', 'watchFolders', (e) => e.checked);
 $('#retry-failed').addEventListener('click', () => attempt(() => api.retryFailed(), 'Retrying failed images'));

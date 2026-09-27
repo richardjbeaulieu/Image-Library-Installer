@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('api', {
   showInFolder: (path) => ipcRenderer.invoke('file:show', path),
   openFile: (path) => ipcRenderer.invoke('file:open', path),
   openFolder: (dir) => ipcRenderer.invoke('folder:show', dir),
+  chooseFolder: (title) => ipcRenderer.invoke('folder:choose', title),
 
   onLibrary: on('library'),
   onItem: on('item'),

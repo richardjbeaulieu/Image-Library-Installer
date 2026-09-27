@@ -157,6 +157,7 @@
     },
     removeFolder: (folder) => rpc('settings:remove-folder', folder),
     changeDataDir: async () => null,
+    pickFolder: (title) => pickFolder(title),
 
     pauseAi: (paused) => rpc('ai:pause', paused),
     reanalyze: (paths) => rpc('ai:reanalyze', paths),

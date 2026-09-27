@@ -45,6 +45,7 @@ const settings = new JsonFile(path.join(DATA_DIR, 'settings.json'), {
   autoAnalyze: true,
   extractZips: true,
   wrapLooseZips: true, // put loose zip contents into a folder named after the zip
+  zipArchive: null, // move extracted zips here; null = trash them
   watchFolders: true,
   concurrency: 3,
 });
@@ -211,6 +212,8 @@ async function scan() {
     const { images, dirs: foundDirs, zipsSettling } = await scanFolders(folders, {
       extractZipsEnabled: settings.data.extractZips,
       wrapLooseZips: settings.data.wrapLooseZips !== false,
+      archiveZip: settings.data.zipArchive ? archiveZipFile : null,
+      skipDirs: settings.data.zipArchive ? [settings.data.zipArchive] : [],
       toRecycleBin: true,
       trashItem: moveToTrash,
       log,
@@ -407,6 +410,8 @@ function publicSettings() {
     autoAnalyze: settings.data.autoAnalyze,
     extractZips: settings.data.extractZips,
     wrapLooseZips: settings.data.wrapLooseZips !== false,
+    zipArchive: settings.data.zipArchive,
+    zipArchiveDisplay: settings.data.zipArchive ? displayPath(settings.data.zipArchive) : '',
     zipsToRecycleBin: true,
     watchFolders: settings.data.watchFolders,
     concurrency: settings.data.concurrency,
@@ -415,6 +420,26 @@ function publicSettings() {
     libraryRoot: LIBRARY_ROOT,
     trashDays: TRASH_DAYS,
   };
+}
+
+// Accepts a path as people type it on their PCs (X:\ETSY\...) or as the container sees it (/library/...).
+function toContainerPath(input) {
+  const raw = String(input || '').trim();
+  if (!raw) return null;
+  if (mapTo && raw.toLowerCase().startsWith(mapTo.toLowerCase())) {
+    const rel = raw.slice(mapTo.length).replace(/^[\\/]+/, '').split('\\').join('/');
+    return rel ? path.join(mapFrom, rel) : mapFrom;
+  }
+  return path.resolve(raw);
+}
+
+// Move an extracted zip into the archive folder. Returns where it landed.
+async function archiveZipFile(zip) {
+  const dir = settings.data.zipArchive;
+  await fsp.mkdir(dir, { recursive: true });
+  const [result] = await fileops.moveFiles([zip], dir);
+  if (result.error) throw new Error(result.error);
+  return result.to;
 }
 
 function requireLibraryDir(dir) {
@@ -433,6 +458,12 @@ const handlers = {
   'settings:get': () => publicSettings(),
   'settings:set': (patch = {}) => {
     for (const k of ['autoAnalyze', 'extractZips', 'wrapLooseZips', 'watchFolders', 'concurrency']) if (k in patch) settings.data[k] = patch[k];
+    if ('zipArchive' in patch) {
+      const dir = toContainerPath(patch.zipArchive);
+      if (dir && !isInside(dir, LIBRARY_ROOT)) throw new Error('The zip archive folder must be inside the library');
+      if (dir) fs.mkdirSync(dir, { recursive: true });
+      settings.data.zipArchive = dir;
+    }
     settings.flush();
     if (patch.model && patch.model !== shared.library.model) shared.setModel(patch.model);
     restartWatchers();

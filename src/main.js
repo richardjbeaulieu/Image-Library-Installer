@@ -145,6 +145,15 @@ function recordOrigin({ zipPath, files }) {
   origins.save();
 }
 
+// Move an extracted zip into the archive folder. Returns where it landed.
+async function archiveZipFile(zip) {
+  const dir = settings.data.zipArchive;
+  await fsp.mkdir(dir, { recursive: true });
+  const [result] = await fileops.moveFiles([zip], dir);
+  if (result.error) throw new Error(result.error);
+  return result.to;
+}
+
 function forget(p) {
   delete index.data.files[p];
   delete origins.data.files[p];
@@ -176,6 +185,8 @@ async function scan() {
     const { images, dirs: foundDirs, zipsSettling } = await scanFolders(folders, {
       extractZipsEnabled: settings.data.extractZips,
       wrapLooseZips: settings.data.wrapLooseZips !== false,
+      archiveZip: settings.data.zipArchive ? archiveZipFile : null,
+      skipDirs: settings.data.zipArchive ? [settings.data.zipArchive] : [],
       toRecycleBin: settings.data.zipsToRecycleBin,
       trashItem: (p) => shell.trashItem(p),
       log,
@@ -514,6 +525,11 @@ function registerIpc() {
   ipcMain.handle('settings:set', (_e, patch) => {
     const allowed = ['autoAnalyze', 'extractZips', 'wrapLooseZips', 'zipsToRecycleBin', 'watchFolders', 'concurrency'];
     for (const k of allowed) if (k in patch) settings.data[k] = patch[k];
+    if ('zipArchive' in patch) {
+      const dir = String(patch.zipArchive || '').trim();
+      if (dir) fs.mkdirSync(dir, { recursive: true });
+      settings.data.zipArchive = dir || null;
+    }
     if (patch.model && patch.model !== shared.library.model) shared.setModel(patch.model);
     settings.flush();
     restartWatchers();
@@ -705,6 +721,10 @@ function registerIpc() {
   ipcMain.handle('file:show', (_e, p) => inLibrary(p) && shell.showItemInFolder(p));
   ipcMain.handle('file:open', (_e, p) => (inLibrary(p) ? shell.openPath(p) : null));
   ipcMain.handle('folder:show', (_e, dir) => (rootOf(dir) ? shell.openPath(dir) : null));
+  ipcMain.handle('folder:choose', async (_e, title) => {
+    const res = await dialog.showOpenDialog(win, { title, properties: ['openDirectory', 'createDirectory'] });
+    return res.canceled ? null : res.filePaths[0];
+  });
 }
 
 // ---------- app lifecycle ----------

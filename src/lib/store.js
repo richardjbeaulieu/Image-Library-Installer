@@ -11,6 +11,7 @@ const DEFAULT_SETTINGS = {
   autoAnalyze: true,
   extractZips: true,
   wrapLooseZips: true, // put loose zip contents into a folder named after the zip
+  zipArchive: null, // move extracted zips here; null = delete them (Recycle Bin / trash)
   zipsToRecycleBin: true, // delete zips by moving them to the Recycle Bin (recoverable)
   watchFolders: true,
   concurrency: 3,
