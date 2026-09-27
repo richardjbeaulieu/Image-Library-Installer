@@ -22,7 +22,7 @@ const { scanFolders, fingerprint, ZIP_SETTLE_MS } = require('../src/lib/scanner'
 const { createClient, describeImage, classifyError, errorText, PAUSE_MESSAGES } = require('../src/lib/describe');
 const fileops = require('../src/lib/fileops');
 const { findDuplicates } = require('../src/lib/dupe-core');
-const { Thumbnails, encodeForAi, dHash, imageSize } = require('./images');
+const { Thumbnails, encodeForAi, dHash, imageSize, writeWithoutBackground, previewWithoutBackground } = require('./images');
 
 process.umask(0); // files created on the share stay editable by everyone who uses it
 
@@ -53,6 +53,8 @@ const index = new JsonFile(path.join(DATA_DIR, 'index.json'), { files: {} });
 // Which zip each extracted file came from: { [path]: { zip, pack, at } }. `pack` is the outermost zip
 // when zips contained zips.
 const origins = new JsonFile(path.join(DATA_DIR, 'origins.json'), { files: {} });
+// Descriptions to reuse for files this app just created (background cut-outs), applied on the next scan.
+const pendingDescriptionCopies = new Map();
 const shared = new SharedLibrary(path.join(DATA_DIR, 'library')).load();
 const thumbs = new Thumbnails(path.join(DATA_DIR, 'thumbs'));
 let dirs = [];
@@ -245,6 +247,11 @@ async function scan() {
         continue;
       }
       files[p] = { path: p, name: path.basename(p), root, size: stat.size, mtime: stat.mtimeMs, fp, status: 'pending' };
+      const copied = pendingDescriptionCopies.get(p);
+      if (copied && !shared.getAi(fp)) {
+        shared.putAi(fp, { ...copied, analyzedAt: Date.now() });
+        pendingDescriptionCopies.delete(p);
+      }
     }
     index.data.files = files;
     // Forget where files came from once they are gone for good.
@@ -595,6 +602,36 @@ const handlers = {
     }
   },
 
+  // Make a copy of each image with its solid background removed, next to the original.
+  'images:remove-background': async (paths = [], opts = {}) => {
+    const results = [];
+    for (const from of paths.filter(inLibrary)) {
+      try {
+        const dir = path.dirname(from);
+        const base = path.basename(from, path.extname(from));
+        let to = path.join(dir, `${base} (transparent).png`);
+        for (let i = 2; fs.existsSync(to); i++) to = path.join(dir, `${base} (transparent ${i}).png`);
+        const cleared = await writeWithoutBackground(from, to, opts);
+        // The cut-out shows the same artwork, so it starts with the original's description instead of paying again.
+        const rec = index.data.files[from];
+        const description = rec && shared.getAi(rec.fp);
+        if (description) pendingDescriptionCopies.set(to, description);
+        const origin = origins.data.files[from];
+        if (origin) {
+          origins.data.files[to] = origin;
+          origins.save();
+        }
+        results.push({ from, to, clearedPercent: Math.round((cleared.cleared / cleared.total) * 100) });
+        log(`Removed the background from ${path.basename(from)}`);
+      } catch (err) {
+        results.push({ from, error: err.message });
+        log(`Could not remove the background from ${path.basename(from)}: ${err.message}`, 'error');
+      }
+    }
+    scan();
+    return results;
+  },
+
   'file:display-paths': (paths = []) => paths.filter((p) => inLibrary(p) || rootOf(p)).map(displayPath),
 };
 
@@ -681,6 +718,24 @@ app.get('/media/thumb', async (req, res) => {
     res.sendFile(await thumbs.get(index.data.files[p]), { dotfiles: 'allow' });
   } catch {
     res.sendFile(p, { dotfiles: 'allow' });
+  }
+});
+
+// Preview for the "Remove background" dialog.
+app.get('/media/remove-bg-preview', async (req, res) => {
+  const p = String(req.query.p || '');
+  if (!inLibrary(p)) return res.sendStatus(404);
+  try {
+    const { png, cleared } = await previewWithoutBackground(p, {
+      tolerance: Number(req.query.tolerance) || 12,
+      feather: req.query.feather !== '0',
+      insideToo: req.query.inside === '1',
+    });
+    mediaHeaders(res);
+    res.set('X-Cleared-Percent', String(Math.round(cleared * 100)));
+    res.type('png').send(png);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 

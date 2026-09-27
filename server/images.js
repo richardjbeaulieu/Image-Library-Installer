@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const sharp = require('sharp');
 const { MAX_EDGE } = require('../src/lib/describe');
 const { dHashFromGray } = require('../src/lib/dupe-core');
+const { removeBackground } = require('../src/lib/remove-bg');
 
 sharp.cache(false); // files on the share change underneath us; don't hold decoded copies
 sharp.concurrency(2);
@@ -89,4 +90,33 @@ async function imageSize(file) {
   }
 }
 
-module.exports = { Thumbnails, encodeForAi, dHash, imageSize };
+const MAX_REMOVE_BG_PIXELS = 60_000_000; // ~7750x7750; bigger than any clipart, and keeps memory sane
+
+// Writes a copy of `file` with its solid background made transparent. Returns what was cleared.
+async function writeWithoutBackground(file, out, opts = {}) {
+  const { data, info } = await open(file).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  if (info.width * info.height > MAX_REMOVE_BG_PIXELS) throw new Error('Image is too large to process');
+  const result = removeBackground(data, info.width, info.height, opts);
+  if (!result) throw new Error('Could not read the background colour');
+  // A picture with no solid background (a photo, a full-bleed pattern) clears only a sliver; a copy of it
+  // would be pointless, so say so instead of writing one.
+  if (result.cleared / result.total < 0.02) throw new Error('No solid background found around the edges');
+  const tmp = `${out}.${process.pid}.tmp`;
+  await sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toFile(tmp);
+  await fsp.rename(tmp, out);
+  return result;
+}
+
+// Small PNG showing what the current settings would clear, for the preview in the dialog.
+async function previewWithoutBackground(file, opts = {}) {
+  const { data, info } = await open(file)
+    .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const result = removeBackground(data, info.width, info.height, opts);
+  const png = await sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toBuffer();
+  return { png, cleared: result ? result.cleared / result.total : 0 };
+}
+
+module.exports = { Thumbnails, encodeForAi, dHash, imageSize, writeWithoutBackground, previewWithoutBackground };

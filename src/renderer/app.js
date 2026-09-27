@@ -359,6 +359,8 @@ function renderSelbar() {
   $('#selbar').hidden = n === 0;
   $('#sel-count').textContent = `${n.toLocaleString()} selected`;
   $('#selbar [data-action="remove-from-album"]').hidden = source.type !== 'album';
+  // Only pictures made of pixels can have a background removed (not SVG drawings).
+  $('#selbar [data-action="remove-background"]').hidden = !selectedPaths().some((p) => !/\.svg$/i.test(p));
 }
 
 const selectedPaths = () => visible.filter((i) => selected.has(i.path)).map((i) => i.path);
@@ -509,6 +511,8 @@ async function runAction(action, paths) {
       return api.showInFolder(paths[0]);
     case 'open':
       return api.openFile(paths[0]);
+    case 'remove-background':
+      return openRemoveBackground(paths.filter((p) => !/\.svg$/i.test(p)));
     case 'reanalyze':
       return attempt(() => api.reanalyze(paths), `Re-analyzing ${plural(paths.length, 'image')}`);
     case 'add-to-album': {
@@ -611,6 +615,7 @@ function showItemMenu(x, y, paths) {
     { label: 'Add to album…', keepOpen: true, run: () => showAlbumMenu(x, y, paths) },
     source.type === 'album' && { label: 'Remove from this album', run: () => removeFromAlbum(source.id, paths) },
     { label: 'Move to…', run: () => moveFlow(paths) },
+    paths.some((p) => !/\.svg$/i.test(p)) && { label: one ? 'Remove background…' : `Remove background from ${paths.length}…`, run: () => openRemoveBackground(paths) },
     { label: one ? 'Rename…' : 'Batch rename…', kbd: 'F2', run: () => openRename(paths) },
     { label: 'Re-analyze with AI', run: () => runAction('reanalyze', paths) },
     'sep',
@@ -1102,6 +1107,79 @@ async function openRename(paths) {
   reportResults(results, 'Renamed');
 }
 
+// ---------- remove background ----------
+// Bumped each time the dialog opens, so a slow preview from a previous image is ignored when it arrives.
+let removeBgSession = 0;
+
+async function openRemoveBackground(paths) {
+  const session = ++removeBgSession;
+  const list = paths.map((p) => byPath.get(p)).filter(Boolean);
+  if (!list.length) return;
+  const dlg = $('#removebg');
+  const sample = list[0];
+  $('#removebg-count').textContent = list.length === 1
+    ? sample.name
+    : `${plural(list.length, 'image')}; the preview shows ${sample.name}`;
+  $('#removebg-note').textContent = `Creates a copy named "${splitExt(sample.name)[0]} (transparent).png" next to the original${list.length > 1 ? ', and the same for the others' : ''}. Originals are not changed.`;
+  $('#removebg-ok').textContent = list.length === 1 ? 'Create transparent copy' : `Create ${list.length} transparent copies`;
+  $('#removebg-before').src = mediaUrl('thumb', sample.path);
+  $('#removebg-after').removeAttribute('src');
+  $('#removebg-cleared').textContent = 'Working out what would be removed…';
+  $('#removebg-cleared').classList.remove('warn');
+  $('#removebg-ok').disabled = true;
+
+  let previewTimer;
+  const options = () => ({ tolerance: Number($('#removebg-tolerance').value), feather: $('#removebg-feather').checked, insideToo: $('#removebg-inside').checked });
+  const after = $('#removebg-after');
+  let previewUrl = null;
+  const refresh = () => {
+    $('#removebg-tolerance-value').textContent = $('#removebg-tolerance').value;
+    after.parentElement.classList.add('loading');
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(async () => {
+      try {
+        const preview = await api.removeBackgroundPreview(sample.path, options());
+        if (session !== removeBgSession) return URL.revokeObjectURL(preview.url);
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        previewUrl = preview.url;
+        after.src = preview.url;
+        const tooLittle = preview.percent < 2;
+        $('#removebg-cleared').textContent = tooLittle
+          ? 'Almost nothing would be removed: this image has no solid background around its edges.'
+          : `Clears about ${preview.percent}% of the picture.`;
+        $('#removebg-cleared').classList.toggle('warn', tooLittle);
+        $('#removebg-ok').disabled = tooLittle;
+      } catch (err) {
+        if (session !== removeBgSession) return;
+        after.parentElement.classList.remove('loading');
+        $('#removebg-cleared').textContent = cleanError(err);
+        $('#removebg-cleared').classList.add('warn');
+        $('#removebg-ok').disabled = true;
+      }
+    }, 250);
+  };
+  after.onload = () => after.parentElement.classList.remove('loading');
+  after.onerror = () => after.parentElement.classList.remove('loading');
+  dlg.oninput = refresh;
+  dlg.onchange = refresh;
+  refresh();
+
+  dlg.returnValue = '';
+  dlg.showModal();
+  const result = await new Promise((resolve) => dlg.addEventListener('close', () => resolve(dlg.returnValue), { once: true }));
+  clearTimeout(previewTimer);
+  if (previewUrl) URL.revokeObjectURL(previewUrl);
+  if (result !== 'ok') return;
+
+  toast(`Removing the background from ${plural(list.length, 'image')}…`);
+  const results = await attempt(() => api.removeBackground(list.map((i) => i.path), options()));
+  if (!results) return;
+  const ok = results.filter((r) => r.to);
+  const failed = results.filter((r) => r.error);
+  if (ok.length) toast(ok.length === 1 ? 'Created the transparent copy' : `Created ${ok.length} transparent copies`);
+  if (failed.length) toast(`${failed.length} could not be done:\n${failed.slice(0, 3).map((f) => `${basename(f.from)}: ${f.error}`).join('\n')}`, true);
+}
+
 // ---------- duplicates ----------
 let dupeGroups = [];
 let marked = new Set();
@@ -1248,6 +1326,10 @@ function renderSettings() {
   $('#extract-zips').checked = settings.extractZips;
   $('#wrap-loose-zips').checked = settings.wrapLooseZips !== false;
   $('#zip-archive').value = settings.zipArchiveDisplay || settings.zipArchive || '';
+  // Say what actually happens to the zip: it is moved when an archive folder is set, otherwise deleted.
+  $('#extract-zips-text').textContent = $('#zip-archive').value
+    ? "Extract zip files into the folder they're in, then move the zip to the archive folder below"
+    : "Extract zip files into the folder they're in, then delete the zip";
   $('#zips-recycle').checked = settings.zipsToRecycleBin;
   $('#watch-folders').checked = settings.watchFolders;
   $('#data-dir').value = settings.dataDir || '';

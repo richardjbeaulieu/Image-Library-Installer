@@ -171,6 +171,14 @@
     renameFiles: (plan) => rpc('files:rename', plan),
     trashFiles: (paths) => rpc('files:trash', paths),
     findDuplicates: (opts) => rpc('duplicates:find', opts),
+    removeBackground: (paths, opts) => rpc('images:remove-background', paths, opts),
+    // Returns { url, percent }: a picture of the result, and how much of it would be cleared.
+    removeBackgroundPreview: async (p, opts) => {
+      const url = `media/remove-bg-preview?p=${encodeURIComponent(p)}&tolerance=${opts.tolerance}&feather=${opts.feather ? 1 : 0}&inside=${opts.insideToo ? 1 : 0}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+      return { url: URL.createObjectURL(await res.blob()), percent: Number(res.headers.get('X-Cleared-Percent')) };
+    },
 
     // Files dropped in from the PC are uploaded into the folder.
     uploadFiles: async (files, dir) => {

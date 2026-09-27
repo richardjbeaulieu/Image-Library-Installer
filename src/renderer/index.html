@@ -108,6 +108,7 @@
           <button data-action="remove-from-album" hidden>Remove from album</button>
           <button data-action="move">Move</button>
           <button data-action="rename" title="Rename (F2)">Rename</button>
+        <button data-action="remove-background" title="Create a copy with the background made transparent">Remove background</button>
           <button data-action="reanalyze">Re-describe</button>
           <button data-action="trash" class="danger" title="Delete (Del)">Delete</button>
           <span class="pill-sep"></span>
@@ -227,6 +228,30 @@
     </form>
   </dialog>
 
+  <!-- Remove background -->
+  <dialog id="removebg" class="dialog">
+    <form method="dialog">
+      <h2>Remove background</h2>
+      <p class="muted" id="removebg-count"></p>
+      <div class="removebg-panes">
+        <figure><figcaption>Original</figcaption><div class="removebg-pane"><img id="removebg-before" alt="" /></div></figure>
+        <figure><figcaption>With the background removed</figcaption><div class="removebg-pane checker"><img id="removebg-after" alt="" /></div></figure>
+      </div>
+      <div class="form-grid">
+        <label>How much to remove<span class="inline"><input id="removebg-tolerance" type="range" min="2" max="40" step="1" value="12" /><span id="removebg-tolerance-value" class="muted"></span></span>
+          <small>Raise it if patches of background remain; lower it if parts of the artwork disappear.</small>
+        </label>
+        <span class="removebg-options"><label class="check"><input id="removebg-feather" type="checkbox" checked /> Soften edges</label><label class="check"><input id="removebg-inside" type="checkbox" /> Also clear matching areas inside the artwork</label></span>
+      </div>
+      <p class="muted" id="removebg-cleared"></p>
+      <p class="muted" id="removebg-note"></p>
+      <div class="dialog-actions">
+        <button value="cancel" formnovalidate>Cancel</button>
+        <button value="ok" class="primary" id="removebg-ok">Create transparent copy</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Duplicates -->
   <dialog id="dupes" class="dialog huge">
     <div class="dupes-head">
@@ -287,7 +312,7 @@
       </section>
       <section>
         <h3>Zip files and watching</h3>
-        <label class="check"><input id="extract-zips" type="checkbox" /> Extract zip files into the folder they're in, then delete the zip</label>
+        <label class="check"><input id="extract-zips" type="checkbox" /><span id="extract-zips-text">Extract zip files into the folder they're in, then delete the zip</span></label>
         <label class="check"><input id="wrap-loose-zips" type="checkbox" /> If a zip's files would land loose in the folder, put them in a new folder named after the zip</label>
         <label class="check"><input id="zips-recycle" type="checkbox" /> Send deleted zips to the Recycle Bin (recoverable)</label>
         <label class="field">After extracting, move the zip to this folder (leave empty to delete it)

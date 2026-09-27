@@ -20,6 +20,9 @@ It runs two ways from the same code:
 - **Smart collections**: saved rules (search words, category, style, color, folder, file type, date) that stay up to date.
 - **Groups**: organize albums and smart collections under a named heading.
 - **Batch rename** (F2): patterns with `{name}` `{title}` `{category}` `{folder}` `{n}` `{date}`, find/replace, case, and spaces, with a live preview.
+- **Remove background**: for clipart on a solid background, creates a copy named `<name> (transparent).png` next to the original,
+  with a live preview, a tolerance slider, optional edge softening, and an option to clear matching areas enclosed by the artwork.
+  Works on several images at once; it refuses photos and busy backgrounds rather than producing a useless copy.
 - **Duplicates**: finds identical files, and optionally visually similar ones (resized or re-saved). Shows every location;
   keep, move, or delete copies one by one or with a rule (keep highest resolution, largest, oldest, newest, shortest path).
 
