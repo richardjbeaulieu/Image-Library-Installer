@@ -18,7 +18,7 @@ const archiver = require('archiver');
 
 const { JsonFile } = require('../src/lib/store');
 const { SharedLibrary } = require('../src/lib/shared');
-const { scanFolders, fingerprint, ZIP_SETTLE_MS } = require('../src/lib/scanner');
+const { scanFolders, fingerprint, clearBrokenZips, ZIP_SETTLE_MS } = require('../src/lib/scanner');
 const { createClient, describeImage, classifyError, errorText, PAUSE_MESSAGES } = require('../src/lib/describe');
 const fileops = require('../src/lib/fileops');
 const { findDuplicates } = require('../src/lib/dupe-core');
@@ -55,6 +55,8 @@ const index = new JsonFile(path.join(DATA_DIR, 'index.json'), { files: {} });
 const origins = new JsonFile(path.join(DATA_DIR, 'origins.json'), { files: {} });
 // Descriptions to reuse for files this app just created (background cut-outs), applied on the next scan.
 const pendingDescriptionCopies = new Map();
+// Zips that could not be opened: { [path]: { message, at } }. Shown in Settings so a bad download is noticed.
+const zipProblems = new JsonFile(path.join(DATA_DIR, 'zip-problems.json'), { files: {} });
 const shared = new SharedLibrary(path.join(DATA_DIR, 'library')).load();
 const thumbs = new Thumbnails(path.join(DATA_DIR, 'thumbs'));
 let dirs = [];
@@ -219,7 +221,17 @@ async function scan() {
       toRecycleBin: true,
       trashItem: moveToTrash,
       log,
-      onExtracted: recordOrigin,
+      onExtracted: (info) => {
+        recordOrigin(info);
+        if (zipProblems.data.files[info.zipPath]) {
+          delete zipProblems.data.files[info.zipPath];
+          zipProblems.save();
+        }
+      },
+      onZipFailed: ({ zip, message }) => {
+        zipProblems.data.files[zip] = { message, at: Date.now() };
+        zipProblems.save();
+      },
       onZipProgress: (p) => {
         extracting = p && !p.finished ? p : null;
         send('status', { extracting: p });
@@ -461,6 +473,42 @@ const handlers = {
   'library:rescan': () => {
     scan();
   },
+  // Zips that could not be opened, newest first.
+  'zips:problems': () =>
+    Object.entries(zipProblems.data.files)
+      .map(([p, info]) => ({ path: p, name: path.basename(p), location: displayPath(path.dirname(p)), ...info, exists: fs.existsSync(p) }))
+      .sort((a, b) => b.at - a.at),
+  // Forget the failures and look again (after replacing a bad download, say).
+  'zips:retry': () => {
+    clearBrokenZips();
+    for (const p of Object.keys(zipProblems.data.files)) if (!fs.existsSync(p)) delete zipProblems.data.files[p];
+    zipProblems.save();
+    scan();
+  },
+
+  // Zips still waiting to be extracted (the archive folder and the trash don't count).
+  'library:count-zips': async () => {
+    let count = 0;
+    const archive = settings.data.zipArchive ? path.resolve(settings.data.zipArchive).toLowerCase() : null;
+    const walk = async (dir) => {
+      if (archive && dir.toLowerCase() === archive) return;
+      let entries = [];
+      try {
+        entries = await fsp.readdir(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          if (!entry.name.startsWith('.') && entry.name !== '__MACOSX') await walk(path.join(dir, entry.name));
+        } else if (entry.name.toLowerCase().endsWith('.zip')) {
+          count++;
+        }
+      }
+    };
+    for (const folder of shared.library.folders) await walk(folder);
+    return count;
+  },
 
   'settings:get': () => publicSettings(),
   'settings:set': (patch = {}) => {
@@ -559,6 +607,27 @@ const handlers = {
     for (const r of results) if (r.to && r.to !== r.from) relocate(r.from, r.to);
     afterFileOps();
     return results;
+  },
+  // Moves a whole folder (with its subfolders and images) into destDir, keeping the folder's name.
+  // Descriptions reattach on their own (they're matched by content, not path); this carries over the
+  // things that are tied to the exact path: album membership and the "From zip" tag.
+  'folder:move': async (fromDir, destDir) => {
+    if (!fromDir || !dirs.includes(fromDir) || shared.library.folders.includes(fromDir)) {
+      throw new Error('Only a subfolder inside the library can be moved this way');
+    }
+    if (!destDir || !rootOf(destDir)) throw new Error('Choose a folder inside the library');
+    const { from, to } = await fileops.moveFolder(fromDir, destDir);
+    if (to !== from) {
+      const prefix = from.toLowerCase() + path.sep;
+      for (const oldPath of Object.keys(index.data.files)) {
+        if (oldPath.toLowerCase() === from.toLowerCase() || oldPath.toLowerCase().startsWith(prefix)) {
+          relocate(oldPath, to + oldPath.slice(from.length));
+        }
+      }
+      log(`Moved "${path.basename(from)}" to ${displayPath(destDir)}`);
+    }
+    afterFileOps();
+    return { from, to };
   },
   'files:rename': async (plan = []) => {
     const results = await fileops.renameFiles(plan.filter((p) => inLibrary(p.from)));
@@ -792,6 +861,7 @@ process.on('SIGTERM', () => {
   settings.flush();
   index.flush();
   origins.flush();
+  zipProblems.flush();
   process.exit(0);
 });
 

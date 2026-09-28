@@ -646,6 +646,32 @@ function registerIpc() {
     afterFileOps();
     return results;
   });
+  // Moves a whole folder (with its subfolders and images) into destDir, keeping the folder's name.
+  // Descriptions reattach on their own (matched by content, not path); this carries over the things
+  // tied to the exact path: album membership and the "From zip" tag.
+  ipcMain.handle('folder:move', async (_e, fromDir, destDir) => {
+    if (!fromDir || !dirs.includes(fromDir) || shared.library.folders.includes(fromDir)) {
+      throw new Error('Only a subfolder inside the library can be moved this way');
+    }
+    if (!destDir) {
+      const res = await dialog.showOpenDialog(win, { title: 'Move folder to', properties: ['openDirectory', 'createDirectory'] });
+      if (res.canceled) return null;
+      destDir = res.filePaths[0];
+    }
+    if (!rootOf(destDir)) throw new Error('Choose a folder inside the library');
+    const { from, to } = await fileops.moveFolder(fromDir, destDir);
+    if (to !== from) {
+      const prefix = from.toLowerCase() + path.sep;
+      for (const oldPath of Object.keys(index.data.files)) {
+        if (oldPath.toLowerCase() === from.toLowerCase() || oldPath.toLowerCase().startsWith(prefix)) {
+          relocate(oldPath, to + oldPath.slice(from.length));
+        }
+      }
+      log(`Moved "${path.basename(from)}" to ${destDir}`);
+    }
+    afterFileOps();
+    return { from, to };
+  });
   // Files dropped in from outside the library (e.g. Explorer) are copied, not moved.
   ipcMain.handle('files:import', async (_e, paths, destDir) => {
     if (!rootOf(destDir)) throw new Error('Choose a folder inside the library');

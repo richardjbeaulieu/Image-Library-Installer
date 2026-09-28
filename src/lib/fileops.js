@@ -40,6 +40,36 @@ async function moveFile(from, to) {
   }
 }
 
+// Moves a whole folder (with everything inside it) into destParent, keeping the folder's own name.
+// Unlike moving files, this never merges into an existing folder of the same name — it numbers instead,
+// so nothing already at the destination is touched. Returns { from, to }.
+async function moveFolder(fromDir, destParent) {
+  const from = path.resolve(fromDir);
+  const dest = path.resolve(destParent);
+  const fromStat = await fsp.stat(from).catch(() => null);
+  if (!fromStat || !fromStat.isDirectory()) throw new Error('That folder no longer exists');
+  const destStat = await fsp.stat(dest).catch(() => null);
+  if (!destStat || !destStat.isDirectory()) throw new Error('Destination folder not found');
+  if (dest.toLowerCase() === from.toLowerCase() || (dest.toLowerCase() + path.sep).startsWith(from.toLowerCase() + path.sep)) {
+    throw new Error('A folder cannot be moved into itself or one of its own subfolders');
+  }
+  if (path.dirname(from).toLowerCase() === dest.toLowerCase()) {
+    return { from, to: from }; // already there
+  }
+  const base = path.basename(from);
+  let to = path.join(dest, base);
+  for (let i = 2; fs.existsSync(to); i++) to = path.join(dest, `${base} (${i})`);
+  try {
+    await fsp.rename(from, to);
+  } catch (err) {
+    if (err.code !== 'EXDEV') throw err;
+    // Different drive: copy the whole tree, then remove the original.
+    await fsp.cp(from, to, { recursive: true });
+    await fsp.rm(from, { recursive: true, force: true });
+  }
+  return { from, to };
+}
+
 async function createFolder(parent, name) {
   const problem = validateName(name);
   if (problem) throw new Error(problem);
@@ -124,4 +154,4 @@ async function recycleFiles(paths, trashItem) {
   return results;
 }
 
-module.exports = { createFolder, moveFiles, renameFiles, recycleFiles, validateName };
+module.exports = { createFolder, moveFolder, moveFiles, renameFiles, recycleFiles, validateName };

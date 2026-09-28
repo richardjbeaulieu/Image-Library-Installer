@@ -16,6 +16,11 @@ const MAX_ZIP_PASSES = 5; // zips inside zips
 // Zips that couldn't be opened, keyed by path + size + modified time. They are not retried (or reported again)
 // until the file changes, e.g. a download is replaced with a good copy.
 const brokenZips = new Set();
+
+// Called when the user asks to try the failed zips again (e.g. after replacing a bad download).
+function clearBrokenZips() {
+  brokenZips.clear();
+}
 const zipKey = (zip, stat) => `${zip}|${stat.size}|${stat.mtimeMs}`;
 
 // True when unzipping would drop files straight into the folder, rather than into a folder of their own.
@@ -79,7 +84,7 @@ async function walk(root, onImage, onZip, onDir = () => {}, skip = new Set()) {
 // Extract each zip into the folder that contains it, then remove the zip.
 // The zip is only removed after a fully successful extraction.
 // progress: { done, total, failed } shared across passes.
-async function extractZips(zips, { toRecycleBin, trashItem, archiveZip, log, onZipProgress = () => {}, onExtracted = () => {}, wrapLooseZips = true, progress }) {
+async function extractZips(zips, { toRecycleBin, trashItem, archiveZip, log, onZipProgress = () => {}, onExtracted = () => {}, onZipFailed = () => {}, wrapLooseZips = true, progress }) {
   let extracted = 0;
   let settling = 0;
   const ready = [];
@@ -141,6 +146,7 @@ async function extractZips(zips, { toRecycleBin, trashItem, archiveZip, log, onZ
     } catch (err) {
       brokenZips.add(zipKey(zip, stat));
       progress.failed++;
+      onZipFailed({ zip, message: err.message, size: stat.size, mtime: stat.mtimeMs });
       log(`Could not extract ${path.basename(zip)}: ${err.message}`, 'error');
     }
     progress.done++;
@@ -199,4 +205,4 @@ async function scanFolders(folders, opts) {
   return { images, dirs, zipsSettling };
 }
 
-module.exports = { scanFolders, fingerprint, ZIP_SETTLE_MS };
+module.exports = { scanFolders, fingerprint, clearBrokenZips, ZIP_SETTLE_MS };

@@ -323,6 +323,15 @@
           <small>Images are never taken from this folder, and zips there are left alone.</small>
         </label>
         <label class="check"><input id="watch-folders" type="checkbox" /> Watch folders for new images and zips</label>
+        <span class="row">
+          <button type="button" id="check-zips-now">Check for zip files now</button>
+          <small id="zips-waiting" class="muted"></small>
+        </span>
+        <div id="zip-problems" hidden>
+          <div class="panel-label">Zip files that could not be opened</div>
+          <ul id="zip-problems-list" class="log"></ul>
+          <button type="button" id="retry-zips">Try these again</button>
+        </div>
       </section>
       <section>
         <h3>Shared library data</h3>

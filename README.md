@@ -15,7 +15,11 @@ It runs two ways from the same code:
   If a zip's files would land loose in the folder, they go into a new folder named after the zip (Settings can turn this off);
   zips that already contain a folder are extracted as they are.
   Zips that were just added wait 10 seconds so a copy or download can finish.
+  Settings has a **Check for zip files now** button (with a live count of zips still waiting) and lists any zip
+  that couldn't be opened, with the reason, and a **Try these again** button for after you replace a bad download.
 - **Folders**: create real folders, move images by dragging them onto a folder in the sidebar or with *Move to…*.
+  Right-click a folder for **Move folder…** to move it as one unit, keeping its subfolders; descriptions, album
+  membership, and the zip tag all move with it.
 - **Albums**: hand-picked sets. Add with *Add to album* or drag images onto an album.
 - **Smart collections**: saved rules (search words, category, style, color, folder, file type, date) that stay up to date.
 - **Groups**: organize albums and smart collections under a named heading.

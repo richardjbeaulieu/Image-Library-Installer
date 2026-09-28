@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('api', {
 
   createFolder: (parent, name) => ipcRenderer.invoke('folder:create', parent, name),
   moveFiles: (paths, destDir) => ipcRenderer.invoke('files:move', paths, destDir),
+  moveFolder: (fromDir, destDir) => ipcRenderer.invoke('folder:move', fromDir, destDir),
   importFiles: (paths, destDir) => ipcRenderer.invoke('files:import', paths, destDir),
   renameFiles: (plan) => ipcRenderer.invoke('files:rename', plan),
   trashFiles: (paths) => ipcRenderer.invoke('files:trash', paths),

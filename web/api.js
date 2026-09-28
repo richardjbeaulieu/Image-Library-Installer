@@ -147,6 +147,9 @@
 
     getLibrary: () => rpc('library:get'),
     rescan: () => rpc('library:rescan'),
+    countZips: () => rpc('library:count-zips'),
+    zipProblems: () => rpc('zips:problems'),
+    retryZips: () => rpc('zips:retry'),
 
     getSettings: () => rpc('settings:get'),
     setSettings: (patch) => rpc('settings:set', patch),
@@ -168,6 +171,7 @@
 
     createFolder: (parent, name) => rpc('folder:create', parent, name),
     moveFiles: (paths, destDir) => rpc('files:move', paths, destDir),
+    moveFolder: (fromDir, destDir) => rpc('folder:move', fromDir, destDir),
     renameFiles: (plan) => rpc('files:rename', plan),
     trashFiles: (paths) => rpc('files:trash', paths),
     findDuplicates: (opts) => rpc('duplicates:find', opts),

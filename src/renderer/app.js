@@ -572,6 +572,22 @@ async function moveFlow(paths) {
   return results;
 }
 
+// Moves an entire folder (with its subfolders and images) somewhere else in the library.
+// Descriptions and search all keep working; album membership and the "From zip" tag move with it.
+async function moveFolderFlow(dir) {
+  const picked = await chooseFolder(`Move “${basename(dir)}” to`);
+  if (!picked) return;
+  const result = await attempt(() => api.moveFolder(dir, picked.dest));
+  if (!result) return;
+  if (result.to === result.from) {
+    toast(`“${basename(dir)}” is already there`);
+    return;
+  }
+  toast(`Moved “${basename(dir)}” to ${displayDir(dirname(result.to))}`);
+  // The folder no longer exists at its old path, so leave that view if it was showing.
+  if (source.type === 'folder' && (source.path === dir || Search.isUnder(source.path, dir))) setSource({ type: 'all' });
+}
+
 // ---------- context menus ----------
 function showMenu(x, y, entries) {
   const menu = $('#menu');
@@ -882,6 +898,7 @@ function renderSidebar() {
         e.preventDefault();
         showMenu(e.clientX, e.clientY, [
           { label: 'New folder inside…', run: () => newFolder(d) },
+          !isRoot && { label: 'Move folder…', run: () => moveFolderFlow(d) },
           { label: WEB ? 'Copy folder path' : 'Open in Explorer', run: () => (WEB ? attempt(() => api.openFolder(d), 'Copied the folder path') : api.openFolder(d)) },
           isRoot && 'sep',
           isRoot && { label: 'Remove from library', danger: true, run: () => removeRoot(d) },
@@ -1326,6 +1343,9 @@ function renderSettings() {
   $('#extract-zips').checked = settings.extractZips;
   $('#wrap-loose-zips').checked = settings.wrapLooseZips !== false;
   $('#zip-archive').value = settings.zipArchiveDisplay || settings.zipArchive || '';
+  $('#check-zips-now').disabled = !settings.extractZips;
+  refreshZipsWaiting();
+  refreshZipProblems();
   // Say what actually happens to the zip: it is moved when an archive folder is set, otherwise deleted.
   $('#extract-zips-text').textContent = $('#zip-archive').value
     ? "Extract zip files into the folder they're in, then move the zip to the archive folder below"
@@ -1391,6 +1411,40 @@ $('#choose-zip-archive').addEventListener('click', async () => {
 bindSetting('#zips-recycle', 'zipsToRecycleBin', (e) => e.checked);
 bindSetting('#watch-folders', 'watchFolders', (e) => e.checked);
 $('#retry-failed').addEventListener('click', () => attempt(() => api.retryFailed(), 'Retrying failed images'));
+$('#check-zips-now').addEventListener('click', async () => {
+  await attempt(() => api.rescan(), 'Looking for zip files…');
+  refreshZipsWaiting();
+});
+$('#retry-zips').addEventListener('click', async () => {
+  await attempt(() => api.retryZips(), 'Trying those zip files again…');
+  setTimeout(() => {
+    refreshZipProblems();
+    refreshZipsWaiting();
+  }, 4000);
+});
+
+// Zips that could not be opened, usually an interrupted download or copy.
+async function refreshZipProblems() {
+  const box = $('#zip-problems');
+  if (!box) return;
+  const problems = (await attempt(() => api.zipProblems())) || [];
+  const live = problems.filter((p) => p.exists);
+  box.hidden = live.length === 0;
+  $('#zip-problems-list').replaceChildren(...live.slice(0, 20).map((p) => el('li', { class: 'error', title: `${p.location}\n${p.message}` }, [
+    el('strong', { text: p.name }),
+    el('span', { text: ` — ${p.message}` }),
+  ])));
+}
+
+// How many zips are still waiting to be extracted (shown next to the button).
+async function refreshZipsWaiting() {
+  const el = $('#zips-waiting');
+  if (!el) return;
+  el.textContent = '';
+  const count = await attempt(() => api.countZips());
+  if (typeof count !== 'number') return;
+  el.textContent = count === 0 ? 'No zip files waiting' : `${count.toLocaleString()} zip ${count === 1 ? 'file' : 'files'} waiting`;
+}
 
 // ---------- top bar ----------
 let searchTimer;
