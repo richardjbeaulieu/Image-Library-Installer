@@ -109,6 +109,7 @@
           <button data-action="move">Move</button>
           <button data-action="rename" title="Rename (F2)">Rename</button>
         <button data-action="remove-background" title="Create a copy with the background made transparent">Remove background</button>
+          <button data-action="resize" title="Create a smaller copy">Resize copy</button>
           <button data-action="reanalyze">Re-describe</button>
           <button data-action="trash" class="danger" title="Delete (Del)">Delete</button>
           <span class="pill-sep"></span>
@@ -248,6 +249,36 @@
       <div class="dialog-actions">
         <button value="cancel" formnovalidate>Cancel</button>
         <button value="ok" class="primary" id="removebg-ok">Create transparent copy</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Resize copy -->
+  <dialog id="resize" class="dialog">
+    <form method="dialog">
+      <h2>Resize copy</h2>
+      <p class="muted" id="resize-count"></p>
+      <div class="removebg-panes">
+        <figure><figcaption>Original</figcaption><div class="removebg-pane checker"><img id="resize-before" alt="" /></div></figure>
+        <figure><figcaption>Resized</figcaption><div class="removebg-pane checker"><img id="resize-after" alt="" /></div></figure>
+      </div>
+      <div class="form-grid">
+        <label class="wide">Fit within (pixels)
+          <span class="inline">
+            <input id="resize-maxdim" type="number" min="16" max="20000" step="1" value="600" />
+            <button type="button" class="subtle" data-preset="300">300</button>
+            <button type="button" class="subtle" data-preset="600">600</button>
+            <button type="button" class="subtle" data-preset="1200">1200</button>
+            <button type="button" class="subtle" data-preset="2000">2000</button>
+          </span>
+          <small>The longer side becomes this size; the shorter side follows automatically, so nothing is stretched or squashed. Never enlarges an image past its original size.</small>
+        </label>
+      </div>
+      <p class="muted" id="resize-result"></p>
+      <p class="muted">Creates a copy next to the original, in the same format. Originals are not changed.</p>
+      <div class="dialog-actions">
+        <button value="cancel" formnovalidate>Cancel</button>
+        <button value="ok" class="primary" id="resize-ok">Create resized copy</button>
       </div>
     </form>
   </dialog>

@@ -359,8 +359,10 @@ function renderSelbar() {
   $('#selbar').hidden = n === 0;
   $('#sel-count').textContent = `${n.toLocaleString()} selected`;
   $('#selbar [data-action="remove-from-album"]').hidden = source.type !== 'album';
-  // Only pictures made of pixels can have a background removed (not SVG drawings).
-  $('#selbar [data-action="remove-background"]').hidden = !selectedPaths().some((p) => !/\.svg$/i.test(p));
+  // Only pictures made of pixels can have a background removed or be resized (not SVG drawings).
+  const hasRaster = selectedPaths().some((p) => !/\.svg$/i.test(p));
+  $('#selbar [data-action="remove-background"]').hidden = !hasRaster;
+  $('#selbar [data-action="resize"]').hidden = !hasRaster;
 }
 
 const selectedPaths = () => visible.filter((i) => selected.has(i.path)).map((i) => i.path);
@@ -513,6 +515,8 @@ async function runAction(action, paths) {
       return api.openFile(paths[0]);
     case 'remove-background':
       return openRemoveBackground(paths.filter((p) => !/\.svg$/i.test(p)));
+    case 'resize':
+      return openResizeCopy(paths.filter((p) => !/\.svg$/i.test(p)));
     case 'reanalyze':
       return attempt(() => api.reanalyze(paths), `Re-analyzing ${plural(paths.length, 'image')}`);
     case 'add-to-album': {
@@ -632,6 +636,7 @@ function showItemMenu(x, y, paths) {
     source.type === 'album' && { label: 'Remove from this album', run: () => removeFromAlbum(source.id, paths) },
     { label: 'Move to…', run: () => moveFlow(paths) },
     paths.some((p) => !/\.svg$/i.test(p)) && { label: one ? 'Remove background…' : `Remove background from ${paths.length}…`, run: () => openRemoveBackground(paths) },
+    paths.some((p) => !/\.svg$/i.test(p)) && { label: one ? 'Resize copy…' : `Resize ${paths.length} copies…`, run: () => openResizeCopy(paths) },
     { label: one ? 'Rename…' : 'Batch rename…', kbd: 'F2', run: () => openRename(paths) },
     { label: 'Re-analyze with AI', run: () => runAction('reanalyze', paths) },
     'sep',
@@ -1194,6 +1199,80 @@ async function openRemoveBackground(paths) {
   const ok = results.filter((r) => r.to);
   const failed = results.filter((r) => r.error);
   if (ok.length) toast(ok.length === 1 ? 'Created the transparent copy' : `Created ${ok.length} transparent copies`);
+  if (failed.length) toast(`${failed.length} could not be done:\n${failed.slice(0, 3).map((f) => `${basename(f.from)}: ${f.error}`).join('\n')}`, true);
+}
+
+// ---------- resize copy ----------
+// Bumped each time the dialog opens, so a slow preview from a previous image is ignored when it arrives.
+let resizeSession = 0;
+
+async function openResizeCopy(paths) {
+  const session = ++resizeSession;
+  const list = paths.map((p) => byPath.get(p)).filter(Boolean);
+  if (!list.length) return;
+  const dlg = $('#resize');
+  const sample = list[0];
+  $('#resize-count').textContent = list.length === 1
+    ? sample.name
+    : `${plural(list.length, 'image')}; the preview shows ${sample.name}`;
+  $('#resize-ok').textContent = list.length === 1 ? 'Create resized copy' : `Create ${list.length} resized copies`;
+  $('#resize-before').src = mediaUrl('thumb', sample.path);
+  $('#resize-after').removeAttribute('src');
+  $('#resize-result').textContent = 'Working out the new size…';
+  $('#resize-result').classList.remove('warn');
+  $('#resize-ok').disabled = true;
+
+  let previewTimer;
+  let previewUrl = null;
+  const maxDim = () => Math.max(16, Math.min(20000, Math.round(Number($('#resize-maxdim').value)) || 600));
+  const after = $('#resize-after');
+  const refresh = () => {
+    after.parentElement.classList.add('loading');
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(async () => {
+      try {
+        const preview = await api.resizePreview(sample.path, { maxDim: maxDim() });
+        if (session !== resizeSession) return URL.revokeObjectURL(preview.url);
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        previewUrl = preview.url;
+        after.src = preview.url;
+        $('#resize-result').textContent = `${preview.width} × ${preview.height} pixels`;
+        $('#resize-result').classList.remove('warn');
+        $('#resize-ok').disabled = false;
+      } catch (err) {
+        if (session !== resizeSession) return;
+        after.parentElement.classList.remove('loading');
+        $('#resize-result').textContent = cleanError(err);
+        $('#resize-result').classList.add('warn');
+        $('#resize-ok').disabled = true;
+      }
+    }, 250);
+  };
+  after.onload = () => after.parentElement.classList.remove('loading');
+  after.onerror = () => after.parentElement.classList.remove('loading');
+  dlg.oninput = refresh;
+  dlg.onchange = refresh;
+  dlg.querySelectorAll('[data-preset]').forEach((b) => {
+    b.onclick = () => {
+      $('#resize-maxdim').value = b.dataset.preset;
+      refresh();
+    };
+  });
+  refresh();
+
+  dlg.returnValue = '';
+  dlg.showModal();
+  const result = await new Promise((resolve) => dlg.addEventListener('close', () => resolve(dlg.returnValue), { once: true }));
+  clearTimeout(previewTimer);
+  if (previewUrl) URL.revokeObjectURL(previewUrl);
+  if (result !== 'ok') return;
+
+  toast(`Resizing ${plural(list.length, 'image')}…`);
+  const results = await attempt(() => api.resizeImage(list.map((i) => i.path), { maxDim: maxDim() }));
+  if (!results) return;
+  const ok = results.filter((r) => r.to);
+  const failed = results.filter((r) => r.error);
+  if (ok.length) toast(ok.length === 1 ? 'Created the resized copy' : `Created ${ok.length} resized copies`);
   if (failed.length) toast(`${failed.length} could not be done:\n${failed.slice(0, 3).map((f) => `${basename(f.from)}: ${f.error}`).join('\n')}`, true);
 }
 

@@ -183,6 +183,19 @@
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
       return { url: URL.createObjectURL(await res.blob()), percent: Number(res.headers.get('X-Cleared-Percent')) };
     },
+    resizeImage: (paths, opts) => rpc('images:resize', paths, opts),
+    // Returns { url, width, height, ext }: the real resized image and its exact final size.
+    resizePreview: async (p, opts) => {
+      const url = `media/resize-preview?p=${encodeURIComponent(p)}&maxDim=${opts.maxDim}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+      return {
+        url: URL.createObjectURL(await res.blob()),
+        width: Number(res.headers.get('X-Result-Width')),
+        height: Number(res.headers.get('X-Result-Height')),
+        ext: res.headers.get('X-Result-Ext') || '',
+      };
+    },
 
     // Files dropped in from the PC are uploaded into the folder.
     uploadFiles: async (files, dir) => {

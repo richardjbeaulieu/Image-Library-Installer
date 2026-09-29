@@ -22,7 +22,18 @@ const { scanFolders, fingerprint, clearBrokenZips, ZIP_SETTLE_MS } = require('..
 const { createClient, describeImage, classifyError, errorText, PAUSE_MESSAGES } = require('../src/lib/describe');
 const fileops = require('../src/lib/fileops');
 const { findDuplicates } = require('../src/lib/dupe-core');
-const { Thumbnails, encodeForAi, dHash, imageSize, writeWithoutBackground, previewWithoutBackground } = require('./images');
+const {
+  Thumbnails,
+  encodeForAi,
+  dHash,
+  imageSize,
+  writeWithoutBackground,
+  previewWithoutBackground,
+  formatFor,
+  planResize,
+  writeResized,
+  previewResized,
+} = require('./images');
 
 process.umask(0); // files created on the share stay editable by everyone who uses it
 
@@ -701,6 +712,42 @@ const handlers = {
     return results;
   },
 
+  // Make a copy of each image resized to fit within maxDim x maxDim - same aspect ratio, never enlarged.
+  'images:resize': async (paths = [], opts = {}) => {
+    const maxDim = Math.max(16, Math.min(20000, Math.round(Number(opts.maxDim) || 600)));
+    const results = [];
+    for (const from of paths.filter(inLibrary)) {
+      try {
+        const plan = await planResize(from, maxDim);
+        if (plan.fits) throw new Error(`Already ${plan.sourceWidth}×${plan.sourceHeight} pixels — at or under ${maxDim}×${maxDim}, nothing to shrink`);
+        const dir = path.dirname(from);
+        const base = path.basename(from, path.extname(from));
+        const fmt = formatFor(path.extname(from));
+        const label = `${plan.width}x${plan.height}`;
+        let to = path.join(dir, `${base} (${label})${fmt.ext}`);
+        for (let i = 2; fs.existsSync(to); i++) to = path.join(dir, `${base} (${label}) (${i})${fmt.ext}`);
+        const info = await writeResized(from, to, maxDim);
+        // The resized copy shows the same artwork, so it starts with the original's description instead of
+        // paying to describe it again.
+        const rec = index.data.files[from];
+        const description = rec && shared.getAi(rec.fp);
+        if (description) pendingDescriptionCopies.set(to, description);
+        const origin = origins.data.files[from];
+        if (origin) {
+          origins.data.files[to] = origin;
+          origins.save();
+        }
+        results.push({ from, to, width: info.width, height: info.height });
+        log(`Created a ${info.width}×${info.height} copy of ${path.basename(from)}`);
+      } catch (err) {
+        results.push({ from, error: err.message });
+        log(`Could not resize ${path.basename(from)}: ${err.message}`, 'error');
+      }
+    }
+    scan();
+    return results;
+  },
+
   'file:display-paths': (paths = []) => paths.filter((p) => inLibrary(p) || rootOf(p)).map(displayPath),
 };
 
@@ -803,6 +850,21 @@ app.get('/media/remove-bg-preview', async (req, res) => {
     mediaHeaders(res);
     res.set('X-Cleared-Percent', String(Math.round(cleared * 100)));
     res.type('png').send(png);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Preview for the "Resize copy" dialog.
+app.get('/media/resize-preview', async (req, res) => {
+  const p = String(req.query.p || '');
+  if (!inLibrary(p)) return res.sendStatus(404);
+  try {
+    const maxDim = Math.max(16, Math.min(20000, Math.round(Number(req.query.maxDim)) || 600));
+    const { buffer, width, height, mime, ext } = await previewResized(p, maxDim);
+    mediaHeaders(res);
+    res.set({ 'X-Result-Width': String(width), 'X-Result-Height': String(height), 'X-Result-Ext': ext });
+    res.type(mime).send(buffer);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

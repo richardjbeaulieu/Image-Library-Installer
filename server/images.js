@@ -119,4 +119,79 @@ async function previewWithoutBackground(file, opts = {}) {
   return { png, cleared: result ? result.cleared / result.total : 0 };
 }
 
-module.exports = { Thumbnails, encodeForAi, dHash, imageSize, writeWithoutBackground, previewWithoutBackground };
+// ---------- resize copy ----------
+// Keeps each image's own format (so a JPEG photo doesn't balloon into a lossless PNG), and re-encodes at a
+// quality high enough that the size drop comes from the pixel count, not visible compression artifacts.
+const RESIZE_QUALITY = 92;
+const RESIZE_FORMATS = {
+  '.jpg': { ext: '.jpg', mime: 'image/jpeg', encode: (img) => img.jpeg({ quality: RESIZE_QUALITY }) },
+  '.jpeg': { ext: '.jpeg', mime: 'image/jpeg', encode: (img) => img.jpeg({ quality: RESIZE_QUALITY }) },
+  '.webp': { ext: '.webp', mime: 'image/webp', encode: (img) => img.webp({ quality: RESIZE_QUALITY }) },
+  '.avif': { ext: '.avif', mime: 'image/avif', encode: (img) => img.avif({ quality: RESIZE_QUALITY }) },
+};
+// Anything sharp can't re-encode as itself (png, bmp, tiff, ...) comes out as lossless PNG.
+const PNG_FORMAT = { ext: '.png', mime: 'image/png', encode: (img) => img.png({ compressionLevel: 9 }) };
+function formatFor(ext) {
+  return RESIZE_FORMATS[ext.toLowerCase()] || PNG_FORMAT;
+}
+
+// What resizing `file` to fit within maxDim x maxDim would produce, without doing the (slower) encode.
+// `fits: true` means the image already fits and there is nothing to shrink.
+async function planResize(file, maxDim) {
+  const meta = await open(file).metadata();
+  const rotated = (meta.orientation || 1) >= 5; // EXIF-rotated 90/270 degrees: width and height are swapped
+  const w = rotated ? meta.height : meta.width;
+  const h = rotated ? meta.width : meta.height;
+  if (!w || !h) throw new Error('Could not read this image');
+  const fits = w <= maxDim && h <= maxDim;
+  const scale = fits ? 1 : Math.min(maxDim / w, maxDim / h);
+  return {
+    fits,
+    sourceWidth: w,
+    sourceHeight: h,
+    width: fits ? w : Math.max(1, Math.round(w * scale)),
+    height: fits ? h : Math.max(1, Math.round(h * scale)),
+  };
+}
+
+function tooSmallError(plan, maxDim) {
+  return new Error(`Already ${plan.sourceWidth}×${plan.sourceHeight} pixels — at or under ${maxDim}×${maxDim}, nothing to shrink`);
+}
+
+// Writes a copy of `file` resized to fit within maxDim x maxDim - same aspect ratio, never enlarged.
+// `rotate()` bakes in the EXIF orientation so the copy displays correctly everywhere, including apps that
+// ignore that tag. Returns the real output size.
+async function writeResized(file, out, maxDim) {
+  const plan = await planResize(file, maxDim);
+  if (plan.fits) throw tooSmallError(plan, maxDim);
+  const fmt = formatFor(path.extname(file));
+  const img = open(file).rotate().resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true, kernel: 'lanczos3' });
+  const tmp = `${out}.${process.pid}.tmp`;
+  const info = await fmt.encode(img).toFile(tmp);
+  await fsp.rename(tmp, out);
+  return { width: info.width, height: info.height };
+}
+
+// The resized image itself, for the dialog's live preview. These are the real output bytes (resizing a
+// still-huge source down to a few hundred pixels is fast in sharp), so the size shown is exact, not a guess.
+async function previewResized(file, maxDim) {
+  const plan = await planResize(file, maxDim);
+  if (plan.fits) throw tooSmallError(plan, maxDim);
+  const fmt = formatFor(path.extname(file));
+  const img = open(file).rotate().resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true, kernel: 'lanczos3' });
+  const buffer = await fmt.encode(img).toBuffer();
+  return { buffer, width: plan.width, height: plan.height, mime: fmt.mime, ext: fmt.ext };
+}
+
+module.exports = {
+  Thumbnails,
+  encodeForAi,
+  dHash,
+  imageSize,
+  writeWithoutBackground,
+  previewWithoutBackground,
+  formatFor,
+  planResize,
+  writeResized,
+  previewResized,
+};
