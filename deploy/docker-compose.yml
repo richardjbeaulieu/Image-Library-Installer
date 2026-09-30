@@ -1,6 +1,7 @@
 # Image Library on the UGREEN NAS.
 # Paste this into the UGOS Docker app (Project > Create) and adjust the two folder paths on the left of each
-# "volumes" line so they match your NAS. Then open http://newfileserver:8787 in a browser.
+# "volumes" line so they match your NAS. Then open https://imagelibrary.tail688d97.ts.net in a browser
+# (or http://newfileserver:8787 directly).
 services:
   image-library:
     image: ghcr.io/richardjbeaulieu/image-library:latest
@@ -18,6 +19,24 @@ services:
       # ANTHROPIC_API_KEY: sk-ant-...
     volumes:
       # The NAS folder that X:\ETSY points to.
-      - /volume1/Files/ETSY:/library
+      - ../../Files/ETSY:/library
       # Descriptions, albums, settings, and thumbnails. Any folder on the NAS; keep it backed up.
-      - /volume1/docker/image-library:/data
+      - ./data:/data
+
+  # Reverse-proxies image-library over HTTPS at a friendly, port-free tailnet address
+  # (https://imagelibrary.<your-tailnet>.ts.net) instead of http://newfileserver:8787.
+  # After first deploy, open Container > imagelibrary-alias > Terminal and run once:
+  #   tailscale serve --bg --https=443 http://127.0.0.1:8787
+  imagelibrary-alias:
+    image: tailscale/tailscale:latest
+    container_name: imagelibrary-alias
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    environment:
+      # Generate a new key at https://login.tailscale.com/admin/settings/keys (reusable, doesn't expire on first use).
+      TS_AUTH_KEY: tskey-auth-REPLACE-WITH-YOUR-REAL-KEY
+      TS_HOSTNAME: imagelibrary
+      TS_STATE_DIR: /var/lib/tailscale
+    volumes:
+      - ./ts-lib:/var/lib/tailscale
